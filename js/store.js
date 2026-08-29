@@ -12,6 +12,10 @@ import { firebaseConfig, isConfigured } from "./firebase-config.js";
 const SDK = "https://www.gstatic.com/firebasejs/10.13.2";
 /* Firestore 資料庫 ID — 在 Firebase 主控台建立資料庫時輸入的名稱(非 (default)) */
 const FIRESTORE_DATABASE_ID = "clock-system";
+/* 帳號可自訂(不用是 email 格式),內部合成一個假 email 給 Firebase Auth 用 */
+const USERNAME_DOMAIN = "timecard.local";
+const usernameToEmail = (u) => `${u.trim().toLowerCase()}@${USERNAME_DOMAIN}`;
+const isSyntheticEmail = (e) => e.endsWith(`@${USERNAME_DOMAIN}`);
 const LS_DAYS = "tc_days";
 const LS_SET  = "tc_settings";
 const LS_MODE = "tc_mode";
@@ -110,16 +114,63 @@ export async function init({ onAuth, onSync }) {
   });
 }
 
-/* ---------- 帳號 ---------- */
-export async function login(email, pass) {
+/* ---------- 帳號 ----------
+   帳號可自訂(不用是 email 格式):
+   - 有填「電子郵件」→ 那組真實 email 就是 Firebase Auth 的登入 email(忘記密碼可用)
+   - 沒填 → 用 usernameToEmail() 合成一個假 email,帳號一樣能自由取,但不能寄重設信
+   帳號 → email 的對應存在公開可讀的 usernames/{帳號} 文件,登入 / 忘記密碼時查詢用。
+*/
+export async function login(account, pass) {
   if (!fb) throw new Error("尚未設定 Firebase,請先使用本機模式");
   localStorage.removeItem(LS_MODE);
+  const email = account.includes("@") ? account.trim() : await resolveEmail(account);
   await fb.A.signInWithEmailAndPassword(fb.auth, email, pass);
 }
-export async function register(email, pass) {
+
+export async function register(account, pass, recoveryEmail) {
   if (!fb) throw new Error("尚未設定 Firebase,請先使用本機模式");
+  const uLower = account.trim().toLowerCase();
+  const authEmail = recoveryEmail && recoveryEmail.trim() ? recoveryEmail.trim() : usernameToEmail(uLower);
+
   localStorage.removeItem(LS_MODE);
-  await fb.A.createUserWithEmailAndPassword(fb.auth, email, pass);
+  await fb.A.createUserWithEmailAndPassword(fb.auth, authEmail, pass);   // 建好後自動登入
+  await fb.A.updateProfile(fb.auth.currentUser, { displayName: uLower }).catch(() => {});
+
+  const { doc, setDoc } = fb.D;
+  try {
+    await setDoc(doc(fb.db, "usernames", uLower), {
+      uid: fb.auth.currentUser.uid, email: authEmail, createdAt: Date.now()
+    });
+  } catch (e) {
+    // 帳號名稱已被別人用真實 email 佔用 → 規則會擋下這次寫入,回滾剛建立的帳號
+    await fb.A.deleteUser(fb.auth.currentUser).catch(() => {});
+    const err = new Error("這個帳號名稱已經被使用,請換一個");
+    err.code = "account/username-taken";
+    throw err;
+  }
+}
+
+export async function sendReset(account) {
+  if (!fb) throw new Error("尚未設定 Firebase,請先使用本機模式");
+  const email = account.includes("@") ? account.trim() : await resolveEmail(account);
+  if (isSyntheticEmail(email)) {
+    const err = new Error("這個帳號沒有設定電子郵件,無法寄送重設信");
+    err.code = "account/no-recovery-email";
+    throw err;
+  }
+  await fb.A.sendPasswordResetEmail(fb.auth, email);
+}
+
+async function resolveEmail(account) {
+  const { doc, getDoc } = fb.D;
+  const uLower = account.trim().toLowerCase();
+  const snap = await getDoc(doc(fb.db, "usernames", uLower));
+  if (!snap.exists()) {
+    const err = new Error("查無此帳號");
+    err.code = "account/not-found";
+    throw err;
+  }
+  return snap.data().email;
 }
 export function useLocal() {
   lsSet(LS_MODE, "local");

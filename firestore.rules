@@ -24,6 +24,15 @@ service cloud.firestore {
       }
     }
 
+    // 帳號(自訂使用者名稱)→ email 對應表
+    // 登入 / 忘記密碼時需要在「還沒登入」的狀態下查詢,所以開放公開讀取。
+    // 內容只有 uid 和 email,不含密碼,建立後不可更改或刪除,避免帳號被搶佔。
+    match /usernames/{usernameId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

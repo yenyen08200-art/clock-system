@@ -18,8 +18,6 @@ let S = Store.getSettings();
 let today = ymd(new Date());
 let calY = new Date().getFullYear();
 let calM = new Date().getMonth();
-let curRange = null;      // 目前查詢區間
-let curSummary = null;
 let tickTimer = null;
 
 /* ---------- 鼓勵語 ---------- */
@@ -47,7 +45,7 @@ Store.init({
     S = Store.getSettings();
     $("#authScreen").classList.add("hidden");
     $("#app").classList.remove("hidden");
-    $("#acctName").textContent = user ? user.email : "本機模式(未登入)";
+    $("#acctName").textContent = user ? (user.displayName || user.email) : "本機模式(未登入)";
     await bootData();
   }
 });
@@ -63,24 +61,52 @@ async function bootData() {
   bindSettingsUI();
   startTick();
   renderHome();
-  await renderPeriodCard();
+  renderTodayRecords();
   checkMissing();
 }
 
 /* =========================================================
-   登入
+   登入 / 註冊 / 忘記密碼
+   ---------------------------------------------------------
+   帳號可自由命名(不用是 email),忘記密碼要靠註冊時選填的
+   電子郵件才能寄重設信;沒填的話只能牢記密碼。
    ========================================================= */
+function setAuthMode(m) {
+  const reset = m === "reset";
+  $("#authActionsNormal").classList.toggle("hidden", reset);
+  $("#authActionsReset").classList.toggle("hidden", !reset);
+  $("#authPassField").classList.toggle("hidden", reset);
+  $("#authRecoveryField").classList.toggle("hidden", reset);
+  $("#btnForgot").classList.toggle("hidden", reset);
+  $("#btnBackToLogin").classList.toggle("hidden", !reset);
+  authMsg("");
+}
+$("#btnForgot").onclick = () => setAuthMode("reset");
+$("#btnBackToLogin").onclick = () => setAuthMode("normal");
+
 $("#btnLogin").onclick = async () => {
-  const e = $("#authEmail").value.trim(), p = $("#authPass").value;
-  if (!e || !p) return authMsg("請輸入帳號與密碼");
+  const acc = $("#authAccount").value.trim(), p = $("#authPass").value;
+  if (!acc || !p) return authMsg("請輸入帳號與密碼");
   authMsg("登入中…");
-  try { await Store.login(e, p); } catch (err) { authMsg(friendlyErr(err)); }
+  try { await Store.login(acc, p); } catch (err) { authMsg(friendlyErr(err)); }
 };
 $("#btnRegister").onclick = async () => {
-  const e = $("#authEmail").value.trim(), p = $("#authPass").value;
-  if (!e || p.length < 6) return authMsg("密碼至少 6 碼");
+  const acc = $("#authAccount").value.trim(), p = $("#authPass").value;
+  const recovery = $("#authRecovery").value.trim();
+  if (!/^[A-Za-z0-9_]{4,20}$/.test(acc)) return authMsg("帳號請用 4~20 碼英數字或底線");
+  if (p.length < 6) return authMsg("密碼至少 6 碼");
+  if (recovery && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recovery)) return authMsg("電子郵件格式不正確");
   authMsg("建立帳號中…");
-  try { await Store.register(e, p); } catch (err) { authMsg(friendlyErr(err)); }
+  try { await Store.register(acc, p, recovery); } catch (err) { authMsg(friendlyErr(err)); }
+};
+$("#btnSendReset").onclick = async () => {
+  const acc = $("#authAccount").value.trim();
+  if (!acc) return authMsg("請輸入帳號");
+  authMsg("寄送中…");
+  try {
+    await Store.sendReset(acc);
+    authMsg("已寄出重設信,請至信箱查收(記得看一下垃圾郵件匣)");
+  } catch (err) { authMsg(friendlyErr(err)); }
 };
 $("#btnLocalMode").onclick = () => Store.useLocal();
 $("#btnLogout").onclick = async () => { if (confirm("確定要登出嗎?")) await Store.logout(); };
@@ -89,9 +115,11 @@ const authMsg = (t) => { $("#authMsg").textContent = t; };
 function friendlyErr(err) {
   const m = String(err.code || err.message);
   if (m.includes("invalid-credential") || m.includes("wrong-password")) return "帳號或密碼不正確";
-  if (m.includes("user-not-found")) return "查無此帳號,請先註冊";
-  if (m.includes("email-already-in-use")) return "這個 Email 已註冊過,請直接登入";
-  if (m.includes("invalid-email")) return "Email 格式不正確";
+  if (m.includes("account/username-taken")) return "這個帳號名稱已經被使用,請換一個";
+  if (m.includes("account/no-recovery-email")) return "這個帳號沒有設定電子郵件,無法寄送重設信,請牢記密碼";
+  if (m.includes("account/not-found") || m.includes("user-not-found")) return "查無此帳號,請先註冊";
+  if (m.includes("email-already-in-use")) return "這組電子郵件已經被使用,請直接登入或換一組";
+  if (m.includes("invalid-email")) return "電子郵件格式不正確";
   if (m.includes("weak-password")) return "密碼太簡單,至少 6 碼";
   if (m.includes("network")) return "網路連線異常,請稍後再試";
   return "發生錯誤:" + m;
@@ -147,8 +175,7 @@ async function punch(type, ripEl) {
 
   if (S.vibrate && navigator.vibrate) navigator.vibrate(type === "out" ? [18, 40, 18] : 22);
   cheer(type, ts);
-  renderHome();
-  renderPeriodCard();
+  refreshAll();
 
   if (S.geo && navigator.geolocation) {              // 位置非同步補上,不卡住打卡
     navigator.geolocation.getCurrentPosition(
@@ -158,7 +185,7 @@ async function punch(type, ripEl) {
         if (target) {
           target.geo = { lat: +pos.coords.latitude.toFixed(5), lng: +pos.coords.longitude.toFixed(5) };
           Store.saveDay(d2);
-          renderHome();
+          refreshAll();
         }
       },
       () => {}, { timeout: 8000, maximumAge: 60000 }
@@ -172,7 +199,6 @@ $("#actBreakStart").onclick = (e) => { ripple(e); punch("breakStart"); };
 $("#actBreakEnd").onclick   = (e) => { ripple(e); punch("breakEnd"); };
 $("#actLeave").onclick      = (e) => { ripple(e); openLeave(today); };
 $("#actFix").onclick        = (e) => { ripple(e); openFix(today); };
-$("#actCal").onclick        = (e) => { ripple(e); switchView("calendar"); };
 
 /* =========================================================
    首頁渲染
@@ -206,9 +232,12 @@ function renderHome() {
   set("#actOut", s.open, s.open && !s.resting);
   set("#actBreakStart", s.open && !s.resting);
   set("#actBreakEnd", s.resting, s.resting);
+}
 
-  // 時間軸
-  $("#todayCount").textContent = `${s.count} 筆`;
+/* 今日打卡紀錄(顯示在「紀錄」分頁最上方) */
+function renderTodayRecords() {
+  const day = Store.getDayCached(today);
+  $("#todayCount").textContent = `${(day.events || []).length} 筆`;
   renderTimeline($("#todayTimeline"), day, false);
 }
 
@@ -239,102 +268,104 @@ function renderTimeline(ul, day, editable) {
         Store.saveDay(d);
         toast("已刪除該筆紀錄");
         openDay(day.date);
-        renderHome(); renderPeriodCard();
+        refreshAll();
       };
     });
   }
 }
 
-async function renderPeriodCard() {
-  const p = payPeriod(S);
-  const days = await Store.fetchRange(p.from, p.to);
-  const sum = summarize(days, S);
-  $("#periodTag").textContent = p.label;
-  $("#pDays").textContent = sum.workDays;
-  $("#pHours").textContent = hours2(sum.workSec);
-  $("#pOt").textContent = hours2(sum.otSec);
-  $("#pPay").textContent = money(sum.total);
-  $("#pRange").innerHTML =
-    `計薪期間 <b>${p.from}</b> ~ <b>${p.to}</b><br>預計 <b>${p.payDate}</b> 發薪` +
-    (sum.missingDays ? `<br><span style="color:var(--terra-deep)">⚠ 有 ${sum.missingDays} 天缺下班卡</span>` : "");
-}
-
 /* =========================================================
-   查詢紀錄
+   查詢紀錄(紀錄分頁 / 薪資分頁 各自獨立的查詢區間)
    ========================================================= */
-$$(".chip").forEach(c => c.onclick = () => {
-  $$(".chip").forEach(x => x.classList.remove("chip-on"));
-  c.classList.add("chip-on");
-  const r = c.dataset.range;
-  $("#customRange").classList.toggle("hidden", r !== "custom");
-  if (r === "custom") {
-    if (!$("#qFrom").value) {
-      const p = payPeriod(S);
-      $("#qFrom").value = p.from; $("#qTo").value = p.to;
+const queryState = { records: null, pay: null };   // { range, summary }
+
+function wireChipGroup(target, fromSel, toSel) {
+  const chips = $$(`[data-chipgroup="${target}"] .chip`);
+  chips.forEach(c => c.onclick = () => {
+    chips.forEach(x => x.classList.remove("chip-on"));
+    c.classList.add("chip-on");
+    const r = c.dataset.range;
+    $(`[data-customgroup="${target}"]`).classList.toggle("hidden", r !== "custom");
+    if (r === "custom") {
+      if (!$(fromSel).value) {
+        const p = payPeriod(S);
+        $(fromSel).value = p.from; $(toSel).value = p.to;
+      }
+      return;
     }
-    return;
-  }
-  let range;
-  if (r === "period") range = payPeriod(S);
-  else if (r === "prev") range = prevPayPeriod(S);
-  else if (r === "month") { const n = new Date(); range = monthRange(n.getFullYear(), n.getMonth()); }
-  else range = weekRange();
-  runQuery(range);
-});
+    let range;
+    if (r === "period") range = payPeriod(S);
+    else if (r === "prev") range = prevPayPeriod(S);
+    else if (r === "month") { const n = new Date(); range = monthRange(n.getFullYear(), n.getMonth()); }
+    else range = weekRange();
+    runQuery(target, range);
+  });
+}
+wireChipGroup("records", "#qFrom", "#qTo");
+wireChipGroup("pay", "#qFromPay", "#qToPay");
+
 $("#qGo").onclick = () => {
   const f = $("#qFrom").value, t = $("#qTo").value;
   if (!f || !t) return toast("請選擇起訖日期");
   if (f > t) return toast("結束日不能早於起始日");
-  runQuery({ from: f, to: t, label: `${f} ~ ${t}` });
+  runQuery("records", { from: f, to: t, label: `${f} ~ ${t}` });
+};
+$("#qGoPay").onclick = () => {
+  const f = $("#qFromPay").value, t = $("#qToPay").value;
+  if (!f || !t) return toast("請選擇起訖日期");
+  if (f > t) return toast("結束日不能早於起始日");
+  runQuery("pay", { from: f, to: t, label: `${f} ~ ${t}` });
 };
 
-async function runQuery(range) {
-  curRange = range;
+async function runQuery(target, range) {
   const days = await Store.fetchRange(range.from, range.to);
   const sum = summarize(days, S);
-  curSummary = sum;
+  queryState[target] = { range, summary: sum };
 
-  $("#rRangeTag").textContent = range.label || `${range.from} ~ ${range.to}`;
-  $("#rDays").textContent = sum.workDays;
-  $("#rLeave").textContent = sum.leaveDays;
-  $("#rNormal").textContent = hours2(sum.normalSec);
-  $("#rOt").textContent = hours2(sum.otSec);
-  $("#rBreak").textContent = hours2(sum.breakSec);
-  $("#rPay").textContent = money(sum.total);
-  $("#rPayNormal").textContent = money(sum.normalPay);
-  $("#rPayOt").textContent = money(sum.otPay);
-  $("#rPayLeave").textContent = money(sum.leavePay);
-  $("#rCount").textContent = `${sum.rows.length} 天`;
-
-  const ul = $("#recordList");
-  if (!sum.rows.length) { ul.innerHTML = `<li class="empty">這個區間還沒有紀錄</li>`; return; }
-  ul.innerHTML = sum.rows.slice().reverse().map(({ day, s }) => {
-    const d = parseYmd(day.date);
-    const lv = day.leave && day.leave.type ? LEAVE[day.leave.type] : null;
-    const title = lv && s.workSec === 0
-      ? `${lv.ico} ${lv.name}`
-      : `${s.firstIn ? fmtClock(s.firstIn) : "—"} → ${s.lastOut ? fmtClock(s.lastOut) : (s.missing ? "缺卡" : "進行中")}`;
-    const sub = [
-      s.breakSec ? `休息 ${hours2(s.breakSec)}h` : "",
-      s.otSec ? `加班 ${hours2(s.otSec)}h` : "",
-      day.note ? `📝 ${day.note.replace(/\n/g, " ")}` : ""
-    ].filter(Boolean).join(" ‧ ") || "—";
-    return `<li class="rec-item ${s.missing ? "rec-warn" : ""}" data-date="${day.date}">
-      <span class="rec-date"><span class="rec-d">${d.getDate()}</span><span class="rec-w">${WEEK[d.getDay()]}</span></span>
-      <span class="rec-main"><span class="rec-title">${title}</span><span class="rec-sub">${escapeHtml(sub)}</span></span>
-      <span class="rec-right"><span class="rec-h">${hours2(s.workSec)}h</span><span class="rec-p">${money(s.total)}</span></span>
-    </li>`;
-  }).join("");
-  ul.querySelectorAll(".rec-item").forEach(li => li.onclick = () => openDay(li.dataset.date));
+  if (target === "records") {
+    $("#rCount").textContent = `${sum.rows.length} 天`;
+    const ul = $("#recordList");
+    if (!sum.rows.length) { ul.innerHTML = `<li class="empty">這個區間還沒有紀錄</li>`; return; }
+    ul.innerHTML = sum.rows.slice().reverse().map(({ day, s }) => {
+      const d = parseYmd(day.date);
+      const lv = day.leave && day.leave.type ? LEAVE[day.leave.type] : null;
+      const title = lv && s.workSec === 0
+        ? `${lv.ico} ${lv.name}`
+        : `${s.firstIn ? fmtClock(s.firstIn) : "—"} → ${s.lastOut ? fmtClock(s.lastOut) : (s.missing ? "缺卡" : "進行中")}`;
+      const sub = [
+        s.breakSec ? `休息 ${hours2(s.breakSec)}h` : "",
+        s.otSec ? `加班 ${hours2(s.otSec)}h` : "",
+        day.note ? `📝 ${day.note.replace(/\n/g, " ")}` : ""
+      ].filter(Boolean).join(" ‧ ") || "—";
+      return `<li class="rec-item ${s.missing ? "rec-warn" : ""}" data-date="${day.date}">
+        <span class="rec-date"><span class="rec-d">${d.getDate()}</span><span class="rec-w">${WEEK[d.getDay()]}</span></span>
+        <span class="rec-main"><span class="rec-title">${title}</span><span class="rec-sub">${escapeHtml(sub)}</span></span>
+        <span class="rec-right"><span class="rec-h">${hours2(s.workSec)}h</span><span class="rec-p">${money(s.total)}</span></span>
+      </li>`;
+    }).join("");
+    ul.querySelectorAll(".rec-item").forEach(li => li.onclick = () => openDay(li.dataset.date));
+  } else {
+    $("#rRangeTag").textContent = range.label || `${range.from} ~ ${range.to}`;
+    $("#rDays").textContent = sum.workDays;
+    $("#rLeave").textContent = sum.leaveDays;
+    $("#rNormal").textContent = hours2(sum.normalSec);
+    $("#rOt").textContent = hours2(sum.otSec);
+    $("#rBreak").textContent = hours2(sum.breakSec);
+    $("#rPay").textContent = money(sum.total);
+    $("#rPayNormal").textContent = money(sum.normalPay);
+    $("#rPayOt").textContent = money(sum.otPay);
+    $("#rPayLeave").textContent = money(sum.leavePay);
+  }
 }
 
 $("#btnExport").onclick = () => {
-  if (!curSummary || !curRange) return toast("請先查詢一個區間");
-  const csv = toCSV(curSummary, S, curRange);
+  const q = queryState.pay;
+  if (!q) return toast("請先查詢一個區間");
+  const csv = toCSV(q.summary, S, q.range);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `打卡紀錄_${curRange.from}_${curRange.to}.csv`;
+  a.download = `打卡紀錄_${q.range.from}_${q.range.to}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 3000);
   toast("已匯出 CSV");
@@ -511,9 +542,10 @@ $("#dayLeave").onclick = () => { closeSheet("#sheetDay"); openLeave(daySheetDate
 
 async function refreshAll() {
   renderHome();
-  await renderPeriodCard();
+  renderTodayRecords();
   if ($("#view-calendar").classList.contains("active")) await renderCalendar();
-  if ($("#view-records").classList.contains("active") && curRange) await runQuery(curRange);
+  if ($("#view-records").classList.contains("active")) await runQuery("records", queryState.records?.range || payPeriod(S));
+  if ($("#view-pay").classList.contains("active")) await runQuery("pay", queryState.pay?.range || payPeriod(S));
 }
 
 /* =========================================================
@@ -525,7 +557,8 @@ function switchView(name) {
   $$(".tab").forEach(t => t.classList.toggle("tab-on", t.dataset.view === name));
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (name === "calendar") renderCalendar();
-  if (name === "records" && !curRange) runQuery(payPeriod(S));
+  if (name === "records") runQuery("records", queryState.records?.range || payPeriod(S));
+  if (name === "pay") runQuery("pay", queryState.pay?.range || payPeriod(S));
   if (name === "settings") updateCyclePreview();
 }
 $$(".tab").forEach(t => t.onclick = () => switchView(t.dataset.view));

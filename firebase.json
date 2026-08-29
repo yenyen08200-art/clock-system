@@ -1,0 +1,8 @@
+{
+  "firestore": [
+    {
+      "database": "clock-system",
+      "rules": "firestore.rules"
+    }
+  ]
+}
