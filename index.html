@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#EFE6D9" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="打卡日記" />
+<title>打卡日記 · Timecard</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ===== 背景：液態玻璃霧面層 ===== -->
+<div class="bg-stage" aria-hidden="true">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="blob blob-4"></div>
+  <div class="mist"></div>
+  <div class="grain"></div>
+</div>
+
+<!-- ===== 登入畫面 ===== -->
+<div id="authScreen" class="auth-screen">
+  <div class="glass auth-card">
+    <div class="auth-logo">🌿</div>
+    <h1 class="auth-title">打卡日記</h1>
+    <p class="auth-sub">記錄每一天的努力</p>
+
+    <div class="field">
+      <label for="authEmail">帳號 (Email)</label>
+      <input id="authEmail" type="email" autocomplete="username" placeholder="you@example.com" />
+    </div>
+    <div class="field">
+      <label for="authPass">密碼</label>
+      <input id="authPass" type="password" autocomplete="current-password" placeholder="至少 6 碼" />
+    </div>
+
+    <div class="auth-actions">
+      <button id="btnLogin" class="btn btn-primary">登入</button>
+      <button id="btnRegister" class="btn btn-ghost">註冊新帳號</button>
+    </div>
+    <button id="btnLocalMode" class="btn btn-text">先不登入,只存在這台手機</button>
+    <p id="authMsg" class="auth-msg"></p>
+  </div>
+</div>
+
+<!-- ===== 主程式 ===== -->
+<div id="app" class="app hidden">
+
+  <!-- 頂部 -->
+  <header class="topbar glass-thin">
+    <div class="topbar-left">
+      <div id="todayLabel" class="today-label">—</div>
+      <div id="liveClock" class="live-clock">--:--:--</div>
+    </div>
+    <div id="statusPill" class="status-pill">未上班</div>
+  </header>
+
+  <main class="views">
+
+    <!-- ============ 首頁 ============ -->
+    <section id="view-home" class="view active">
+      <div class="glass card hero-card">
+        <div class="hero-row">
+          <div class="hero-item">
+            <span class="hero-cap">今日工時</span>
+            <strong id="todayWorked" class="hero-val mono">00:00:00</strong>
+          </div>
+          <div class="hero-div"></div>
+          <div class="hero-item">
+            <span class="hero-cap">今日預估</span>
+            <strong id="todayPay" class="hero-val">NT$ 0</strong>
+          </div>
+        </div>
+        <div id="todayBreakLine" class="hero-sub">休息 00:00:00 ‧ 尚未打卡</div>
+        <div class="hero-bar"><div id="todayBar" class="hero-bar-fill"></div></div>
+      </div>
+
+      <!-- 主要按鈕 -->
+      <div class="btn-grid">
+        <button id="actIn" class="glass action action-lg action-in">
+          <span class="action-ico">🌅</span>
+          <span class="action-txt">上班</span>
+          <span class="action-hint">開始工作</span>
+        </button>
+        <button id="actOut" class="glass action action-lg action-out">
+          <span class="action-ico">🌇</span>
+          <span class="action-txt">下班</span>
+          <span class="action-hint">結束工作</span>
+        </button>
+      </div>
+
+      <div class="btn-grid">
+        <button id="actBreakStart" class="glass action action-md action-break">
+          <span class="action-ico">🍱</span>
+          <span class="action-txt">中午休息</span>
+        </button>
+        <button id="actBreakEnd" class="glass action action-md action-back">
+          <span class="action-ico">☕</span>
+          <span class="action-txt">休息結束</span>
+        </button>
+      </div>
+
+      <div class="btn-grid btn-grid-3">
+        <button id="actLeave" class="glass action action-sm">
+          <span class="action-ico">🏖️</span>
+          <span class="action-txt">請假</span>
+        </button>
+        <button id="actFix" class="glass action action-sm">
+          <span class="action-ico">🩹</span>
+          <span class="action-txt">補卡</span>
+        </button>
+        <button id="actCal" class="glass action action-sm">
+          <span class="action-ico">🗓️</span>
+          <span class="action-txt">小日曆</span>
+        </button>
+      </div>
+
+      <!-- 今日時間軸 -->
+      <div class="glass card">
+        <div class="card-head">
+          <h2 class="card-title">今日打卡紀錄</h2>
+          <span id="todayCount" class="tag">0 筆</span>
+        </div>
+        <ul id="todayTimeline" class="timeline"></ul>
+      </div>
+
+      <!-- 本期概況 -->
+      <div class="glass card">
+        <div class="card-head">
+          <h2 class="card-title">本期薪資概況</h2>
+          <span id="periodTag" class="tag">—</span>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><span class="stat-cap">出勤天數</span><strong id="pDays" class="stat-val">0</strong></div>
+          <div class="stat"><span class="stat-cap">總工時</span><strong id="pHours" class="stat-val mono">0.00</strong></div>
+          <div class="stat"><span class="stat-cap">加班時數</span><strong id="pOt" class="stat-val mono">0.00</strong></div>
+          <div class="stat stat-hl"><span class="stat-cap">預估薪資</span><strong id="pPay" class="stat-val">NT$ 0</strong></div>
+        </div>
+        <div id="pRange" class="period-range">—</div>
+      </div>
+    </section>
+
+    <!-- ============ 紀錄查詢 ============ -->
+    <section id="view-records" class="view">
+      <div class="glass card">
+        <h2 class="card-title mb8">查詢區間</h2>
+        <div class="chip-row">
+          <button class="chip chip-on" data-range="period">本期薪資</button>
+          <button class="chip" data-range="prev">上期薪資</button>
+          <button class="chip" data-range="month">本月 1~底</button>
+          <button class="chip" data-range="week">本週</button>
+          <button class="chip" data-range="custom">自訂</button>
+        </div>
+        <div id="customRange" class="range-row hidden">
+          <input id="qFrom" type="date" /><span class="range-dash">~</span><input id="qTo" type="date" />
+          <button id="qGo" class="btn btn-primary btn-sm">查詢</button>
+        </div>
+      </div>
+
+      <div class="glass card">
+        <div class="card-head">
+          <h2 class="card-title">統計結果</h2>
+          <span id="rRangeTag" class="tag">—</span>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><span class="stat-cap">出勤天數</span><strong id="rDays" class="stat-val">0</strong></div>
+          <div class="stat"><span class="stat-cap">請假天數</span><strong id="rLeave" class="stat-val">0</strong></div>
+          <div class="stat"><span class="stat-cap">正常工時</span><strong id="rNormal" class="stat-val mono">0.00</strong></div>
+          <div class="stat"><span class="stat-cap">加班工時</span><strong id="rOt" class="stat-val mono">0.00</strong></div>
+          <div class="stat"><span class="stat-cap">休息扣除</span><strong id="rBreak" class="stat-val mono">0.00</strong></div>
+          <div class="stat stat-hl"><span class="stat-cap">合計薪資</span><strong id="rPay" class="stat-val">NT$ 0</strong></div>
+        </div>
+        <div class="pay-break">
+          <div class="pay-line"><span>正常工資</span><b id="rPayNormal">NT$ 0</b></div>
+          <div class="pay-line"><span>加班費 (1.34 / 1.67 倍)</span><b id="rPayOt">NT$ 0</b></div>
+          <div class="pay-line"><span>假日 / 特休給薪</span><b id="rPayLeave">NT$ 0</b></div>
+        </div>
+        <button id="btnExport" class="btn btn-ghost btn-block">匯出 CSV 明細</button>
+      </div>
+
+      <div class="glass card">
+        <div class="card-head">
+          <h2 class="card-title">每日明細</h2>
+          <span id="rCount" class="tag">0 天</span>
+        </div>
+        <ul id="recordList" class="rec-list"></ul>
+      </div>
+    </section>
+
+    <!-- ============ 小日曆 ============ -->
+    <section id="view-calendar" class="view">
+      <div class="glass card">
+        <div class="cal-head">
+          <button id="calPrev" class="cal-nav">‹</button>
+          <div class="cal-title-wrap">
+            <select id="calYear" class="cal-sel"></select>
+            <select id="calMonth" class="cal-sel"></select>
+          </div>
+          <button id="calNext" class="cal-nav">›</button>
+        </div>
+        <div class="cal-week">
+          <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+        </div>
+        <div id="calGrid" class="cal-grid"></div>
+        <div class="cal-legend">
+          <span><i class="dot dot-work"></i>上班</span>
+          <span><i class="dot dot-leave"></i>請假</span>
+          <span><i class="dot dot-note"></i>記事</span>
+          <span><i class="dot dot-warn"></i>缺卡</span>
+        </div>
+      </div>
+      <div class="glass card">
+        <div class="card-head">
+          <h2 class="card-title">本月摘要</h2>
+          <span id="calMonthTag" class="tag">—</span>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><span class="stat-cap">上班天數</span><strong id="cDays" class="stat-val">0</strong></div>
+          <div class="stat"><span class="stat-cap">總工時</span><strong id="cHours" class="stat-val mono">0.00</strong></div>
+          <div class="stat"><span class="stat-cap">記事數</span><strong id="cNotes" class="stat-val">0</strong></div>
+          <div class="stat stat-hl"><span class="stat-cap">月薪資</span><strong id="cPay" class="stat-val">NT$ 0</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 設定 ============ -->
+    <section id="view-settings" class="view">
+      <div class="glass card">
+        <h2 class="card-title mb8">薪資設定</h2>
+        <div class="field">
+          <label for="setWage">時薪 (NT$ / 小時)</label>
+          <input id="setWage" type="number" min="0" step="1" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="setDaily">每日約定工時 (小時,超過即算加班)</label>
+          <input id="setDaily" type="number" min="1" max="12" step="0.5" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="setBreak">午休自動扣除 (分鐘,0 = 只依實際打卡)</label>
+          <input id="setBreak" type="number" min="0" max="180" step="5" inputmode="numeric" />
+        </div>
+        <label class="switch-row">
+          <span>啟用加班費倍率 <small>平日前 2 小時 ×1.34,第 3 小時起 ×1.67</small></span>
+          <input id="setOt" type="checkbox" class="switch" />
+        </label>
+      </div>
+
+      <div class="glass card">
+        <h2 class="card-title mb8">計薪週期</h2>
+        <div class="field">
+          <label for="setCycle">計薪模式</label>
+          <select id="setCycle">
+            <option value="payday">發薪日往前推一個月 (5 號發薪 → 上月 5 號 ~ 本月 4 號)</option>
+            <option value="monthly">當月 1 號 ~ 月底</option>
+            <option value="custom">自訂結算起始日</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="setPayday">發薪日 (每月幾號)</label>
+          <input id="setPayday" type="number" min="1" max="28" step="1" inputmode="numeric" />
+        </div>
+        <div class="field" id="cutoffField">
+          <label for="setCutoff">結算起始日 (每月幾號起算)</label>
+          <input id="setCutoff" type="number" min="1" max="28" step="1" inputmode="numeric" />
+        </div>
+        <div id="cyclePreview" class="hint-box">—</div>
+      </div>
+
+      <div class="glass card">
+        <h2 class="card-title mb8">請假給薪規則</h2>
+        <div class="field"><label for="lvAnnual">特休 / 國定假日 給薪比例 (%)</label><input id="lvAnnual" type="number" min="0" max="200" step="10" inputmode="numeric" /></div>
+        <div class="field"><label for="lvSick">病假 給薪比例 (%)</label><input id="lvSick" type="number" min="0" max="100" step="10" inputmode="numeric" /></div>
+        <div class="field"><label for="lvPersonal">事假 給薪比例 (%)</label><input id="lvPersonal" type="number" min="0" max="100" step="10" inputmode="numeric" /></div>
+      </div>
+
+      <div class="glass card">
+        <h2 class="card-title mb8">其他</h2>
+        <label class="switch-row">
+          <span>打卡記錄 GPS 位置 <small>需允許定位權限</small></span>
+          <input id="setGeo" type="checkbox" class="switch" />
+        </label>
+        <label class="switch-row">
+          <span>打卡震動回饋</span>
+          <input id="setVibe" type="checkbox" class="switch" />
+        </label>
+        <label class="switch-row">
+          <span>缺卡自動提醒</span>
+          <input id="setWarn" type="checkbox" class="switch" />
+        </label>
+      </div>
+
+      <div class="glass card">
+        <div class="acct-row">
+          <div>
+            <div class="acct-cap">目前帳號</div>
+            <div id="acctName" class="acct-name">—</div>
+          </div>
+          <button id="btnLogout" class="btn btn-ghost btn-sm">登出</button>
+        </div>
+        <div id="syncState" class="sync-state">—</div>
+      </div>
+
+      <p class="foot-note">資料儲存於 Firebase Firestore,離線時自動暫存於本機,連線後同步。</p>
+    </section>
+  </main>
+
+  <!-- 底部導覽 -->
+  <nav class="tabbar glass-thin">
+    <button class="tab tab-on" data-view="home"><span>🏠</span><i>首頁</i></button>
+    <button class="tab" data-view="records"><span>📊</span><i>紀錄</i></button>
+    <button class="tab" data-view="calendar"><span>🗓️</span><i>日曆</i></button>
+    <button class="tab" data-view="settings"><span>⚙️</span><i>設定</i></button>
+  </nav>
+</div>
+
+<!-- ===== 補卡 Sheet ===== -->
+<div id="sheetFix" class="sheet">
+  <div class="sheet-mask" data-close></div>
+  <div class="glass sheet-body">
+    <div class="sheet-grip"></div>
+    <h2 class="sheet-title">🩹 忘記打卡 · 補卡</h2>
+    <p class="sheet-desc">選擇日期與時間,補上漏掉的紀錄。補登紀錄會標示「補」以供查核。</p>
+    <div class="field"><label for="fixDate">日期</label><input id="fixDate" type="date" /></div>
+    <div class="field">
+      <label for="fixType">補卡類型</label>
+      <select id="fixType">
+        <option value="in">上班</option>
+        <option value="out">下班</option>
+        <option value="breakStart">中午休息</option>
+        <option value="breakEnd">休息結束</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>時間 (時 / 分 / 秒)</label>
+      <div class="time-row">
+        <input id="fixH" type="number" min="0" max="23" placeholder="時" inputmode="numeric" />
+        <span>:</span>
+        <input id="fixM" type="number" min="0" max="59" placeholder="分" inputmode="numeric" />
+        <span>:</span>
+        <input id="fixS" type="number" min="0" max="59" placeholder="秒" inputmode="numeric" />
+      </div>
+    </div>
+    <div class="field"><label for="fixNote">補卡原因 (選填)</label><input id="fixNote" type="text" placeholder="例:手機沒電" /></div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button id="fixSave" class="btn btn-primary">確認補卡</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 請假 Sheet ===== -->
+<div id="sheetLeave" class="sheet">
+  <div class="sheet-mask" data-close></div>
+  <div class="glass sheet-body">
+    <div class="sheet-grip"></div>
+    <h2 class="sheet-title">🏖️ 請假 / 休假登記</h2>
+    <div class="field"><label for="lvDate">日期</label><input id="lvDate" type="date" /></div>
+    <div class="field">
+      <label for="lvType">假別</label>
+      <select id="lvType">
+        <option value="off">例假 / 休息日 (不計薪)</option>
+        <option value="annual">特休</option>
+        <option value="holiday">國定假日</option>
+        <option value="sick">病假</option>
+        <option value="personal">事假</option>
+        <option value="official">公假</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="lvHours">請假時數 (小時,整天請填約定工時)</label>
+      <input id="lvHours" type="number" min="0" max="12" step="0.5" inputmode="decimal" />
+    </div>
+    <div class="field"><label for="lvNote">備註 (選填)</label><input id="lvNote" type="text" placeholder="例:回南部" /></div>
+    <div class="sheet-actions">
+      <button id="lvClear" class="btn btn-ghost">清除該日</button>
+      <button id="lvSave" class="btn btn-primary">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 單日詳情 Sheet ===== -->
+<div id="sheetDay" class="sheet">
+  <div class="sheet-mask" data-close></div>
+  <div class="glass sheet-body">
+    <div class="sheet-grip"></div>
+    <h2 id="dayTitle" class="sheet-title">—</h2>
+    <div id="dayStat" class="day-stat"></div>
+    <h3 class="sub-title">打卡紀錄</h3>
+    <ul id="dayTimeline" class="timeline"></ul>
+    <h3 class="sub-title">📝 我的記事</h3>
+    <textarea id="dayNote" class="note-area" rows="5" placeholder="寫下今天想記住的事…"></textarea>
+    <div class="sheet-actions">
+      <button id="dayFix" class="btn btn-ghost">補卡</button>
+      <button id="dayLeave" class="btn btn-ghost">請假</button>
+      <button id="dayNoteSave" class="btn btn-primary">儲存記事</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 打卡動態特效 ===== -->
+<div id="cheer" class="cheer">
+  <div class="cheer-glass glass">
+    <div id="cheerIco" class="cheer-ico">🌅</div>
+    <div id="cheerMsg" class="cheer-msg">上班加油!</div>
+    <div id="cheerTime" class="cheer-time mono">--:--:--</div>
+  </div>
+  <div id="cheerParticles" class="particles"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
