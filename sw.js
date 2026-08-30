@@ -1,7 +1,7 @@
 /* 打卡日記 · Service Worker
    只快取自己的靜態檔,Firebase 請求一律走網路(讓 SDK 自己處理離線)。 */
 
-const CACHE = "timecard-v1";
+const CACHE = "timecard-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ const ASSETS = [
   "./js/app.js",
   "./js/calc.js",
   "./js/store.js",
+  "./js/lock.js",
   "./js/firebase-config.js",
   "./manifest.webmanifest"
 ];

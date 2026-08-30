@@ -3,11 +3,14 @@
    ========================================================= */
 
 import * as Store from "./store.js";
+import * as Lock from "./lock.js";
 import {
   ymd, parseYmd, addDays, pad, WEEK, EV, LEAVE,
   fmtHMS, fmtClock, fmtClock12, money, hours2,
   dayStats, daySalary, payPeriod, prevPayPeriod,
-  monthRange, weekRange, summarize, toCSV, lastDayOfMonth
+  monthRange, weekRange, summarize, toCSV,
+  annualLeaveDays, annualLeaveYear, monthsOfService, holidayName,
+  overtimeStatus, OT_MONTHLY_CAP_HOURS
 } from "./calc.js";
 
 const $  = (s) => document.querySelector(s);
@@ -45,6 +48,7 @@ Store.init({
     $("#app").classList.remove("hidden");
     $("#acctName").textContent = user ? (user.displayName || user.email) : "本機模式(未登入)";
     await bootData();
+    maybeLock();
   }
 });
 
@@ -57,10 +61,13 @@ async function bootData() {
   await Store.fetchRange(from, to);
 
   bindSettingsUI();
+  renderJobUI();
   startTick();
   renderHome();
   renderTodayRecords();
+  await renderQuota();
   checkMissing();
+  scheduleReminder();
 }
 
 /* =========================================================
@@ -394,12 +401,14 @@ async function renderCalendar() {
     const inMonth = d.getMonth() === calM;
     const rec = map.get(key);
     const s = rec ? daySalary(rec, S) : null;
+    const hol = holidayName(key);
     const cls = ["cal-cell"];
     if (!inMonth) cls.push("mute");
     if (key === ymd(new Date())) cls.push("today");
     if (s && s.missing) cls.push("has-warn");
     else if (s && s.workSec > 0) cls.push("has-work");
     else if (rec && rec.leave && rec.leave.type) cls.push("has-leave");
+    else if (hol) cls.push("has-holiday");
 
     const dots = [];
     if (s && s.workSec > 0) dots.push("dot-work");
@@ -407,9 +416,11 @@ async function renderCalendar() {
     if (rec && rec.note) dots.push("dot-note");
     if (s && s.missing) dots.push("dot-warn");
 
-    html += `<div class="${cls.join(" ")}" data-date="${key}">
+    html += `<div class="${cls.join(" ")}" data-date="${key}"${hol ? ` title="${hol}"` : ""}>
       <span class="cal-num">${d.getDate()}</span>
-      ${s && s.workSec > 0 ? `<span class="cal-hrs">${hours2(s.workSec)}h</span>` : ""}
+      ${s && s.workSec > 0
+        ? `<span class="cal-hrs">${hours2(s.workSec)}h</span>`
+        : (hol ? `<span class="cal-hol">${hol.length > 3 ? hol.slice(0, 3) : hol}</span>` : "")}
       <span class="cal-dots">${dots.map(x => `<i class="dot ${x}"></i>`).join("")}</span>
     </div>`;
   }
@@ -502,9 +513,12 @@ async function openDay(date) {
   const day = await Store.fetchDay(date);
   const s = daySalary(day, S);
   const d = parseYmd(date);
-  $("#dayTitle").textContent = `${d.getMonth() + 1} 月 ${d.getDate()} 日 (${WEEK[d.getDay()]})`;
+  const hol = holidayName(date);
+  $("#dayTitle").textContent =
+    `${d.getMonth() + 1} 月 ${d.getDate()} 日 (${WEEK[d.getDay()]})` + (hol ? ` ‧ ${hol}` : "");
 
   const chips = [
+    hol ? `<span class="day-chip">🎌 ${hol}</span>` : "",
     `<span class="day-chip">工時 <b>${fmtHMS(s.workSec)}</b></span>`,
     `<span class="day-chip">休息 <b>${fmtHMS(s.breakSec)}</b></span>`,
     s.otSec ? `<span class="day-chip">加班 <b>${hours2(s.otSec)}h</b></span>` : "",
@@ -533,9 +547,13 @@ $("#dayLeave").onclick = () => { closeSheet("#sheetDay"); openLeave(daySheetDate
 async function refreshAll() {
   renderHome();
   renderTodayRecords();
+  await renderQuota();
   if ($("#view-calendar").classList.contains("active")) await renderCalendar();
   if ($("#view-records").classList.contains("active")) await runQuery("records", queryState.records?.range || payPeriod(S));
-  if ($("#view-pay").classList.contains("active")) await runQuery("pay", queryState.pay?.range || payPeriod(S));
+  if ($("#view-pay").classList.contains("active")) {
+    await runQuery("pay", queryState.pay?.range || payPeriod(S));
+    await renderTrend();
+  }
 }
 
 /* =========================================================
@@ -548,8 +566,10 @@ function switchView(name) {
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (name === "calendar") renderCalendar();
   if (name === "records") runQuery("records", queryState.records?.range || payPeriod(S));
-  if (name === "pay") runQuery("pay", queryState.pay?.range || payPeriod(S));
-  if (name === "settings") updateCyclePreview();
+  if (name === "pay") {
+    runQuery("pay", queryState.pay?.range || payPeriod(S)).then(renderTrend);
+  }
+  if (name === "settings") { updateCyclePreview(); syncLockUI(); }
 }
 $$(".tab").forEach(t => t.onclick = () => switchView(t.dataset.view));
 
@@ -557,13 +577,17 @@ $$(".tab").forEach(t => t.onclick = () => switchView(t.dataset.view));
    設定
    ========================================================= */
 const SET_MAP = [
+  ["#setJobName", "name", "text"],
   ["#setWage", "wage", "number"], ["#setDaily", "dailyHours", "number"],
+  ["#setHire", "hireDate", "text"],
   ["#setBreak", "autoBreakMin", "number"], ["#setOt", "overtime", "bool"],
+  ["#setOtCap", "otCapHours", "number"],
   ["#setCycle", "cycleMode", "text"], ["#setPayday", "payday", "number"],
   ["#setCutoff", "cutoffStart", "number"],
   ["#lvAnnual", "leaveAnnual", "number"], ["#lvSick", "leaveSick", "number"],
   ["#lvPersonal", "leavePersonal", "number"],
-  ["#setGeo", "geo", "bool"], ["#setVibe", "vibrate", "bool"], ["#setWarn", "warnMissing", "bool"]
+  ["#setGeo", "geo", "bool"], ["#setVibe", "vibrate", "bool"], ["#setWarn", "warnMissing", "bool"],
+  ["#setRemind", "remindEnabled", "bool"], ["#setRemindTime", "remindTime", "text"]
 ];
 
 function bindSettingsUI() {
@@ -571,20 +595,24 @@ function bindSettingsUI() {
   SET_MAP.forEach(([sel, key, type]) => {
     const el = $(sel);
     if (type === "bool") el.checked = !!S[key]; else el.value = S[key];
-    el.onchange = () => {
+    el.onchange = async () => {
       const v = type === "bool" ? el.checked : (type === "number" ? Number(el.value) : el.value);
       Store.saveSettings({ [key]: v });
       S = Store.getSettings();
       updateCyclePreview();
-      refreshAll();
+      if (key === "name") renderJobUI();
+      if (key === "remindEnabled" || key === "remindTime") scheduleReminder();
+      await refreshAll();
       toast("設定已儲存");
     };
   });
   updateCyclePreview();
+  syncLockUI();
 }
 
 function updateCyclePreview() {
   $("#cutoffField").classList.toggle("hidden", S.cycleMode !== "custom");
+  $("#remindTimeField").classList.toggle("hidden", !S.remindEnabled);
   const p = payPeriod(S), prev = prevPayPeriod(S);
   $("#cyclePreview").innerHTML =
     `<b>本期</b>:${p.from} ~ ${p.to} → ${p.payDate} 發薪<br>` +
@@ -672,4 +700,432 @@ function escapeHtml(s) {
    ========================================================= */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+}
+
+/* =========================================================
+   工作(多雇主)
+   ========================================================= */
+const JOB_ICONS = ["💼", "🏪", "☕", "🍜", "🎬", "🖥️", "🎨", "📚"];
+const jobIcon = (id) => {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return JOB_ICONS[h % JOB_ICONS.length];
+};
+
+function renderJobUI() {
+  const jobs = Store.getJobs();
+  const active = Store.getActiveJob();
+  $("#jobName").textContent = active.name || "我的工作";
+  // 只有一份工作時不顯示切換鈕,畫面比較乾淨
+  $("#jobSwitch").classList.toggle("hidden", jobs.length < 2);
+  renderJobList($("#jobList"), true);
+}
+
+function renderJobList(ul, withDelete) {
+  const jobs = Store.getJobs();
+  const activeId = Store.getActiveJobId();
+  ul.innerHTML = jobs.map(j => `
+    <li class="job-item" data-job="${j.id}">
+      <span class="job-dot">${jobIcon(j.id)}</span>
+      <span class="job-main">
+        <span class="job-nm">${escapeHtml(j.name || "未命名")}</span>
+        <span class="job-sub">時薪 ${money(j.wage)} ‧ ${j.payday} 號發薪</span>
+      </span>
+      ${j.id === activeId ? '<span class="job-on">使用中</span>' : ""}
+      ${withDelete && jobs.length > 1 && j.id !== activeId
+        ? `<button class="job-del" data-deljob="${j.id}" title="刪除">✕</button>` : ""}
+    </li>`).join("");
+
+  ul.querySelectorAll(".job-item").forEach(li => li.onclick = async (e) => {
+    if (e.target.dataset.deljob) return;
+    const id = li.dataset.job;
+    if (id === Store.getActiveJobId()) return;
+    await Store.switchJob(id);
+    S = Store.getSettings();
+    closeSheet("#sheetJob");
+    bindSettingsUI(); renderJobUI();
+    await refreshAll();
+    toast(`已切換到「${Store.getActiveJob().name}」`);
+  });
+
+  ul.querySelectorAll("[data-deljob]").forEach(btn => btn.onclick = async (e) => {
+    e.stopPropagation();
+    const id = btn.dataset.deljob;
+    const job = Store.getJobs().find(j => j.id === id);
+    if (!confirm(`確定要刪除「${job.name}」嗎?\n這份工作的所有打卡紀錄都會一起刪除,無法復原。`)) return;
+    try {
+      await Store.deleteJob(id);
+      renderJobUI();
+      toast("已刪除該份工作");
+    } catch (err) { toast(err.message); }
+  });
+}
+
+$("#jobSwitch").onclick = () => { renderJobList($("#jobPicker"), false); openSheet("#sheetJob"); };
+$("#btnAddJob").onclick = addJob;
+$("#jobAddFromSheet").onclick = () => { closeSheet("#sheetJob"); addJob(); };
+
+async function addJob() {
+  const name = prompt("新工作的名稱?", "新工作");
+  if (name === null) return;
+  await Store.createJob({ name: name.trim() || "新工作" });
+  S = Store.getSettings();
+  bindSettingsUI(); renderJobUI();
+  await refreshAll();
+  toast(`已新增「${Store.getActiveJob().name}」,記得去設定時薪`);
+}
+
+/* =========================================================
+   特休 / 加班上限
+   ========================================================= */
+async function renderQuota() {
+  // --- 特休 ---
+  const hire = S.hireDate;
+  const total = annualLeaveDays(hire);
+  const yr = annualLeaveYear(hire);
+  if (!hire || !yr) {
+    $("#annualLeft").textContent = "—";
+    $("#annualSub").textContent = "設定到職日後自動計算";
+  } else {
+    const days = await Store.fetchRange(yr.from, yr.to);
+    const used = summarize(days, S).annualUsedDays;
+    const left = Math.max(0, total - used);
+    $("#annualLeft").innerHTML = `${(+left.toFixed(1))}<small> / ${total} 天</small>`;
+    const m = monthsOfService(hire);
+    $("#annualSub").textContent = total === 0
+      ? `年資 ${m} 個月,滿 6 個月才有特休`
+      : `年資 ${Math.floor(m / 12)} 年 ${m % 12} 個月 ‧ 已用 ${(+used.toFixed(1))} 天`;
+  }
+
+  // --- 本月加班 ---
+  const now = new Date();
+  const mr = monthRange(now.getFullYear(), now.getMonth());
+  const mDays = await Store.fetchRange(mr.from, mr.to);
+  const otSec = summarize(mDays, S).otSec;
+  const cap = Number(S.otCapHours) || OT_MONTHLY_CAP_HOURS;
+  const st = overtimeStatus(otSec, cap);
+
+  $("#otUsed").innerHTML = `${st.used.toFixed(1)}<small>h</small>`;
+  $("#otSub").textContent = `上限 ${cap}h ‧ 剩 ${st.remain.toFixed(1)}h`;
+  const bar = $("#otBar");
+  bar.style.width = st.pct + "%";
+  bar.className = "quota-bar-fill" + (st.level === "ok" ? "" : " " + st.level);
+
+  const warn = $("#otWarn");
+  if (st.level === "over") {
+    warn.textContent = `⚠️ 本月加班已達 ${st.used.toFixed(1)} 小時,超過勞基法 §32 每月 ${cap} 小時上限`;
+    warn.classList.remove("hidden");
+  } else if (st.level === "warn") {
+    warn.textContent = `注意:本月加班已用 ${st.pct.toFixed(0)}%,只剩 ${st.remain.toFixed(1)} 小時額度`;
+    warn.classList.remove("hidden");
+  } else {
+    warn.classList.add("hidden");
+  }
+}
+
+/* =========================================================
+   趨勢圖(純 SVG,不用外部套件)
+   ========================================================= */
+let trendMode = "month";
+$$("[data-trend]").forEach(c => c.onclick = () => {
+  $$("[data-trend]").forEach(x => x.classList.remove("chip-on"));
+  c.classList.add("chip-on");
+  trendMode = c.dataset.trend;
+  renderTrend();
+});
+
+async function renderTrend() {
+  const now = new Date();
+  const buckets = [];
+
+  if (trendMode === "month") {
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const r = monthRange(d.getFullYear(), d.getMonth());
+      buckets.push({ label: `${d.getMonth() + 1}月`, ...r });
+    }
+  } else {
+    for (let i = 7; i >= 0; i--) {
+      const ref = addDays(now, -i * 7);
+      const r = weekRange(ref);
+      const s = parseYmd(r.from);
+      buckets.push({ label: `${s.getMonth() + 1}/${s.getDate()}`, ...r });
+    }
+  }
+
+  for (const b of buckets) {
+    const days = await Store.fetchRange(b.from, b.to);
+    const sum = summarize(days, S);
+    b.hours = sum.workSec / 3600;
+    b.pay = sum.total;
+  }
+
+  const maxH = Math.max(1, ...buckets.map(b => b.hours));
+  const maxP = Math.max(1, ...buckets.map(b => b.pay));
+
+  const W = 100 * buckets.length, H = 190, PAD_B = 34, PAD_T = 22;
+  const bw = 100, gap = 14, barW = (bw - gap * 2) / 2;
+
+  const bars = buckets.map((b, i) => {
+    const x = i * bw + gap;
+    const hH = ((H - PAD_B - PAD_T) * b.hours) / maxH;
+    const pH = ((H - PAD_B - PAD_T) * b.pay) / maxP;
+    const hasData = b.hours > 0 || b.pay > 0;
+    return `
+      <g>
+        <rect x="${x}" y="${H - PAD_B - hH}" width="${barW}" height="${Math.max(hH, hasData ? 2 : 0)}"
+              rx="4" fill="var(--sage-deep)" opacity=".85"/>
+        <rect x="${x + barW + 5}" y="${H - PAD_B - pH}" width="${barW}" height="${Math.max(pH, hasData ? 2 : 0)}"
+              rx="4" fill="var(--terra)" opacity=".85"/>
+        <text x="${x + barW + 2}" y="${H - PAD_B + 15}" text-anchor="middle"
+              font-size="11" fill="var(--ink-soft)">${b.label}</text>
+        ${b.hours > 0 ? `<text x="${x + barW + 2}" y="${H - PAD_B - Math.max(hH, pH) - 6}"
+              text-anchor="middle" font-size="10" fill="var(--ink-faint)">${b.hours.toFixed(0)}h</text>` : ""}
+      </g>`;
+  }).join("");
+
+  $("#trendChart").innerHTML =
+    `<svg class="trend-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMid meet" role="img"
+          aria-label="工時與收入趨勢圖">
+       <line x1="0" y1="${H - PAD_B}" x2="${W}" y2="${H - PAD_B}" stroke="rgba(122,96,71,.18)" stroke-width="1"/>
+       ${bars}
+     </svg>`;
+
+  const totalPay = buckets.reduce((s, b) => s + b.pay, 0);
+  const totalH = buckets.reduce((s, b) => s + b.hours, 0);
+  const active = buckets.filter(b => b.hours > 0).length;
+  $("#trendSummary").innerHTML = active
+    ? `合計 <b>${totalH.toFixed(1)}</b> 小時 ‧ <b>${money(totalPay)}</b><br>` +
+      `平均每${trendMode === "month" ? "月" : "週"} ${(totalH / active).toFixed(1)} 小時 ‧ ${money(totalPay / active)}`
+    : "這段期間還沒有紀錄";
+}
+
+/* =========================================================
+   薪資單(列印 / 存成 PDF)
+   ========================================================= */
+$("#btnPayslip").onclick = () => {
+  const q = queryState.pay;
+  if (!q || !q.summary.rows.length) return toast("請先查詢一個有紀錄的區間");
+  buildPayslip(q.range, q.summary);
+  $("#payslip").classList.add("open");
+};
+$("#psClose").onclick = () => $("#payslip").classList.remove("open");
+$("#psPrint").onclick = () => window.print();
+
+function buildPayslip(range, sum) {
+  const job = Store.getActiveJob();
+  $("#psJob").textContent = `${job.name} ‧ 時薪 ${money(job.wage)}`;
+  $("#psPeriod").textContent = `計薪期間 ${range.from} ~ ${range.to}`;
+  const p = payPeriod(S);
+  $("#psPayDate").textContent = range.from === p.from ? `預計發薪日 ${p.payDate}` : "";
+
+  const cap = Number(S.otCapHours) || OT_MONTHLY_CAP_HOURS;
+  const rows = [
+    ["出勤天數", `${sum.workDays} 天`],
+    ["請假天數", `${sum.leaveDays} 天`],
+    ["正常工時", `${hours2(sum.normalSec)} 小時`],
+    ["加班工時", `${hours2(sum.otSec)} 小時${sum.otSec / 3600 > cap ? "(超過每月上限)" : ""}`],
+    ["休息扣除", `${hours2(sum.breakSec)} 小時`],
+    ["正常工資", money(sum.normalPay)],
+    ["加班費", money(sum.otPay)],
+    ["假日 / 特休給薪", money(sum.leavePay)]
+  ];
+  $("#psSummary").innerHTML = rows
+    .map(([k, v]) => `<tr><td class="ps-k">${k}</td><td class="ps-v">${v}</td></tr>`).join("");
+
+  $("#psRows").innerHTML = sum.rows.map(({ day, s }) => {
+    const d = parseYmd(day.date);
+    const lv = day.leave && day.leave.type ? LEAVE[day.leave.type] : null;
+    return `<tr>
+      <td>${day.date.slice(5)}</td>
+      <td>${WEEK[d.getDay()]}</td>
+      <td>${s.firstIn ? fmtClock(s.firstIn) : "—"}</td>
+      <td>${s.lastOut ? fmtClock(s.lastOut) : (s.missing ? "缺卡" : "—")}</td>
+      <td>${hours2(s.workSec)}</td>
+      <td>${s.otSec ? hours2(s.otSec) : "—"}</td>
+      <td>${lv ? lv.name : "—"}</td>
+      <td>${Math.round(s.total).toLocaleString("zh-TW")}</td>
+    </tr>`;
+  }).join("");
+
+  $("#psTotal").textContent = `合計應領 ${money(sum.total)}`;
+}
+
+/* =========================================================
+   App 鎖
+   ========================================================= */
+let pinBuf = "", pinStage = "", pinFirst = "";
+
+function buildPad(padEl, onDigit) {
+  padEl.innerHTML = [1, 2, 3, 4, 5, 6, 7, 8, 9, "clear", 0, "back"].map(k => {
+    if (k === "clear") return `<button class="pin-key fn" data-k="clear">清除</button>`;
+    if (k === "back")  return `<button class="pin-key fn" data-k="back">⌫</button>`;
+    return `<button class="pin-key" data-k="${k}">${k}</button>`;
+  }).join("");
+  padEl.querySelectorAll("[data-k]").forEach(b => b.onclick = () => onDigit(b.dataset.k));
+}
+
+function drawDots(el, n) {
+  el.innerHTML = Array.from({ length: 6 }, (_, i) =>
+    `<span class="pin-dot ${i < n ? "on" : ""}"></span>`).join("");
+}
+
+/* --- 解鎖畫面 --- */
+function maybeLock() {
+  if (Lock.isEnabled()) showLock();
+}
+
+function showLock() {
+  pinBuf = "";
+  $("#lockScreen").classList.remove("hidden");
+  $("#app").classList.add("hidden");
+  $("#lockMsg").textContent = "";
+  drawDots($("#pinDots"), 0);
+  buildPad($("#pinPad"), onLockKey);
+  $("#btnBioUnlock").classList.toggle("hidden", !Lock.hasBiometric());
+  if (Lock.hasBiometric()) setTimeout(tryBio, 350);   // 自動叫出 Face ID
+}
+
+async function onLockKey(k) {
+  if (k === "clear") pinBuf = "";
+  else if (k === "back") pinBuf = pinBuf.slice(0, -1);
+  else if (pinBuf.length < 6) pinBuf += k;
+  drawDots($("#pinDots"), pinBuf.length);
+
+  if (pinBuf.length === 6) {
+    if (await Lock.verifyPin(pinBuf)) unlock();
+    else {
+      $("#lockMsg").textContent = "PIN 碼不正確";
+      $("#pinDots").classList.add("pin-shake");
+      setTimeout(() => {
+        $("#pinDots").classList.remove("pin-shake");
+        pinBuf = ""; drawDots($("#pinDots"), 0);
+      }, 440);
+      if (navigator.vibrate) navigator.vibrate([30, 60, 30]);
+    }
+  }
+}
+
+async function tryBio() {
+  try { if (await Lock.verifyBiometric()) unlock(); }
+  catch { /* 使用者取消就留在 PIN 畫面 */ }
+}
+$("#btnBioUnlock").onclick = tryBio;
+
+function unlock() {
+  $("#lockScreen").classList.add("hidden");
+  $("#app").classList.remove("hidden");
+}
+
+/* --- 設定 PIN --- */
+function openPinSetup() {
+  pinBuf = ""; pinFirst = ""; pinStage = "first";
+  $("#pinStepDesc").textContent = "請輸入 6 位數字";
+  $("#setPinMsg").textContent = "";
+  drawDots($("#setPinDots"), 0);
+  buildPad($("#setPinPad"), onSetPinKey);
+  openSheet("#sheetPin");
+}
+
+async function onSetPinKey(k) {
+  if (k === "clear") pinBuf = "";
+  else if (k === "back") pinBuf = pinBuf.slice(0, -1);
+  else if (pinBuf.length < 6) pinBuf += k;
+  drawDots($("#setPinDots"), pinBuf.length);
+  if (pinBuf.length < 6) return;
+
+  if (pinStage === "first") {
+    pinFirst = pinBuf; pinBuf = ""; pinStage = "confirm";
+    $("#pinStepDesc").textContent = "請再輸入一次確認";
+    setTimeout(() => drawDots($("#setPinDots"), 0), 180);
+  } else {
+    if (pinBuf === pinFirst) {
+      await Lock.enable(pinFirst);
+      closeSheet("#sheetPin");
+      syncLockUI();
+      toast("已啟用 App 鎖 🔒");
+    } else {
+      $("#setPinMsg").textContent = "兩次輸入不一致,請重新設定";
+      pinBuf = ""; pinFirst = ""; pinStage = "first";
+      $("#pinStepDesc").textContent = "請輸入 6 位數字";
+      $("#setPinDots").classList.add("pin-shake");
+      setTimeout(() => {
+        $("#setPinDots").classList.remove("pin-shake");
+        drawDots($("#setPinDots"), 0);
+      }, 440);
+    }
+  }
+}
+
+async function syncLockUI() {
+  const on = Lock.isEnabled();
+  $("#setLock").checked = on;
+  $("#btnChangePin").classList.toggle("hidden", !on);
+  const bioOk = on && await Lock.biometricAvailable();
+  $("#bioRow").classList.toggle("hidden", !bioOk);
+  $("#setBio").checked = Lock.hasBiometric();
+}
+
+$("#setLock").onchange = () => {
+  if ($("#setLock").checked) { $("#setLock").checked = false; openPinSetup(); }
+  else { Lock.disable(); syncLockUI(); toast("已關閉 App 鎖"); }
+};
+$("#btnChangePin").onclick = openPinSetup;
+$("#setBio").onchange = async () => {
+  if ($("#setBio").checked) {
+    try {
+      await Lock.registerBiometric(Store.getActiveJob().name || "timecard");
+      toast("已啟用生物辨識解鎖");
+    } catch {
+      $("#setBio").checked = false;
+      toast("設定失敗,可能是裝置不支援或你取消了");
+    }
+  } else { Lock.removeBiometric(); toast("已關閉生物辨識"); }
+  syncLockUI();
+};
+
+/* 回到前景超過 2 分鐘就重新上鎖 */
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) hiddenAt = Date.now();
+  else if (Lock.isEnabled() && hiddenAt && Date.now() - hiddenAt > 120000) showLock();
+});
+
+/* =========================================================
+   忘記打卡提醒
+   ---------------------------------------------------------
+   純前端沒有推播伺服器,所以只能在 App 開著(或剛用過、分頁
+   還活著)的時候發本機通知。完全關掉瀏覽器就不會跳 —— 這點
+   在設定頁有明講,不給使用者錯誤期待。
+   ========================================================= */
+let remindTimer = null;
+
+async function scheduleReminder() {
+  clearTimeout(remindTimer);
+  if (!S.remindEnabled || !("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch { return; }
+  }
+  if (Notification.permission !== "granted") return;
+
+  const [h, m] = (S.remindTime || "18:30").split(":").map(Number);
+  const now = new Date();
+  const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+
+  remindTimer = setTimeout(() => {
+    const st = dayStats(Store.getDayCached(ymd(new Date())), S);
+    if (st.open) fireNotify("該打下班卡囉 🌇", "今天還在上班中,別忘了打卡下班。");
+    scheduleReminder();                       // 排下一天
+  }, target - now);
+}
+
+function fireNotify(title, body) {
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready
+        .then(reg => reg.showNotification(title, { body, icon: "icons/icon-192.png", tag: "tc-remind" }))
+        .catch(() => new Notification(title, { body }));
+    } else new Notification(title, { body });
+  } catch { toast(title); }
 }

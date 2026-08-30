@@ -15,12 +15,24 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
 
-      // 每日打卡 / 記事
+      // 舊版單一工作的每日打卡(保留讀寫,升級後仍留著當備份)
       match /days/{dateId} {
         allow read: if request.auth != null && request.auth.uid == userId;
         allow write: if request.auth != null
                      && request.auth.uid == userId
                      && dateId.matches('^\\d{4}-\\d{2}-\\d{2}$');
+      }
+
+      // 多份工作 / 多雇主
+      match /jobs/{jobId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+
+        match /days/{dateId} {
+          allow read: if request.auth != null && request.auth.uid == userId;
+          allow write: if request.auth != null
+                       && request.auth.uid == userId
+                       && dateId.matches('^\\d{4}-\\d{2}-\\d{2}$');
+        }
       }
     }
 

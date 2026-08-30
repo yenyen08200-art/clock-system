@@ -27,6 +27,19 @@
   <div class="grain"></div>
 </div>
 
+<!-- ===== App 鎖畫面 ===== -->
+<div id="lockScreen" class="auth-screen hidden">
+  <div class="glass auth-card">
+    <div class="auth-logo">🔒</div>
+    <h1 class="auth-title">已鎖定</h1>
+    <p class="auth-sub">輸入 PIN 碼解鎖</p>
+    <div class="pin-dots" id="pinDots"></div>
+    <div class="pin-pad" id="pinPad"></div>
+    <button id="btnBioUnlock" class="btn btn-ghost btn-block hidden">🫆 使用生物辨識解鎖</button>
+    <p id="lockMsg" class="auth-msg"></p>
+  </div>
+</div>
+
 <!-- ===== 登入畫面 ===== -->
 <div id="authScreen" class="auth-screen">
   <div class="glass auth-card">
@@ -67,7 +80,10 @@
   <!-- 頂部 -->
   <header class="topbar glass-thin">
     <div class="topbar-left">
-      <div id="todayLabel" class="today-label">—</div>
+      <div class="today-row">
+        <div id="todayLabel" class="today-label">—</div>
+        <button id="jobSwitch" class="job-chip hidden">💼 <span id="jobName">—</span> ▾</button>
+      </div>
       <div id="liveClock" class="live-clock">--:--:--</div>
     </div>
     <div id="statusPill" class="status-pill">未上班</div>
@@ -118,6 +134,25 @@
           <span class="action-ico">🩹</span>
           <span class="action-txt">補卡</span>
         </button>
+      </div>
+
+      <!-- 特休 / 加班上限 -->
+      <div class="glass card" id="quotaCard">
+        <div class="quota-row">
+          <div class="quota-item">
+            <span class="quota-cap">特休剩餘</span>
+            <strong id="annualLeft" class="quota-val">—</strong>
+            <span id="annualSub" class="quota-sub">未設定到職日</span>
+          </div>
+          <div class="quota-div"></div>
+          <div class="quota-item">
+            <span class="quota-cap">本月加班</span>
+            <strong id="otUsed" class="quota-val">0.0<small>h</small></strong>
+            <span id="otSub" class="quota-sub">上限 46h</span>
+          </div>
+        </div>
+        <div class="quota-bar"><div id="otBar" class="quota-bar-fill"></div></div>
+        <div id="otWarn" class="quota-warn hidden"></div>
       </div>
     </section>
 
@@ -191,7 +226,27 @@
           <div class="pay-line"><span>加班費 (1.34 / 1.67 倍)</span><b id="rPayOt">NT$ 0</b></div>
           <div class="pay-line"><span>假日 / 特休給薪</span><b id="rPayLeave">NT$ 0</b></div>
         </div>
-        <button id="btnExport" class="btn btn-ghost btn-block">匯出 CSV 明細</button>
+        <div class="export-row">
+          <button id="btnExport" class="btn btn-ghost">匯出 CSV</button>
+          <button id="btnPayslip" class="btn btn-primary">薪資單 PDF</button>
+        </div>
+      </div>
+
+      <!-- 趨勢圖 -->
+      <div class="glass card">
+        <div class="card-head">
+          <h2 class="card-title">近期趨勢</h2>
+          <div class="chip-row chip-row-sm">
+            <button class="chip chip-on chip-sm" data-trend="month">近 6 個月</button>
+            <button class="chip chip-sm" data-trend="week">近 8 週</button>
+          </div>
+        </div>
+        <div class="trend-legend">
+          <span><i class="lg lg-hours"></i>工時</span>
+          <span><i class="lg lg-pay"></i>收入</span>
+        </div>
+        <div id="trendChart" class="trend-wrap"></div>
+        <div id="trendSummary" class="trend-summary">—</div>
       </div>
     </section>
 
@@ -215,6 +270,7 @@
           <span><i class="dot dot-leave"></i>請假</span>
           <span><i class="dot dot-note"></i>記事</span>
           <span><i class="dot dot-warn"></i>缺卡</span>
+          <span><i class="dot dot-holiday"></i>國定假日</span>
         </div>
       </div>
       <div class="glass card">
@@ -233,11 +289,29 @@
 
     <!-- ============ 設定 ============ -->
     <section id="view-settings" class="view">
+      <!-- 工作管理 -->
+      <div class="glass card">
+        <div class="card-head">
+          <h2 class="card-title">我的工作</h2>
+          <button id="btnAddJob" class="btn btn-ghost btn-sm">+ 新增</button>
+        </div>
+        <ul id="jobList" class="job-list"></ul>
+        <p class="foot-note mt8">每份工作有獨立的時薪、發薪日與打卡紀錄,可隨時在上方切換。</p>
+      </div>
+
       <div class="glass card">
         <h2 class="card-title mb8">薪資設定</h2>
         <div class="field">
+          <label for="setJobName">工作名稱</label>
+          <input id="setJobName" type="text" maxlength="20" placeholder="例:早餐店" />
+        </div>
+        <div class="field">
           <label for="setWage">時薪 (NT$ / 小時)</label>
           <input id="setWage" type="number" min="0" step="1" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="setHire">到職日 <small>用來自動計算特休天數</small></label>
+          <input id="setHire" type="date" />
         </div>
         <div class="field">
           <label for="setDaily">每日約定工時 (小時,超過即算加班)</label>
@@ -251,6 +325,10 @@
           <span>啟用加班費倍率 <small>平日前 2 小時 ×1.34,第 3 小時起 ×1.67</small></span>
           <input id="setOt" type="checkbox" class="switch" />
         </label>
+        <div class="field mt8">
+          <label for="setOtCap">每月加班上限 (小時) <small>勞基法 §32 規定為 46 小時,接近時會提醒</small></label>
+          <input id="setOtCap" type="number" min="0" max="100" step="1" inputmode="numeric" />
+        </div>
       </div>
 
       <div class="glass card">
@@ -295,6 +373,30 @@
           <span>缺卡自動提醒</span>
           <input id="setWarn" type="checkbox" class="switch" />
         </label>
+        <label class="switch-row">
+          <span>忘記打卡提醒 <small>到設定時間還沒打下班卡就通知</small></span>
+          <input id="setRemind" type="checkbox" class="switch" />
+        </label>
+        <div class="field mt8" id="remindTimeField">
+          <label for="setRemindTime">提醒時間</label>
+          <input id="setRemindTime" type="time" />
+          <p class="field-note">⚠️ 網頁版沒有後端伺服器,提醒只在 App 開著或剛用過時才會跳。想要 100% 準時,建議另外設一個手機鬧鐘。</p>
+        </div>
+      </div>
+
+      <!-- App 鎖 -->
+      <div class="glass card">
+        <h2 class="card-title mb8">App 鎖</h2>
+        <label class="switch-row">
+          <span>啟用 PIN 碼鎖定 <small>開啟 App 時需輸入 6 位數字</small></span>
+          <input id="setLock" type="checkbox" class="switch" />
+        </label>
+        <label class="switch-row hidden" id="bioRow">
+          <span>生物辨識快速解鎖 <small>Face ID / 指紋</small></span>
+          <input id="setBio" type="checkbox" class="switch" />
+        </label>
+        <button id="btnChangePin" class="btn btn-ghost btn-block hidden">變更 PIN 碼</button>
+        <p class="foot-note mt8">鎖定設定只存在這台裝置,換手機需重新設定。忘記 PIN 可登出後重新登入解除。</p>
       </div>
 
       <div class="glass card">
@@ -401,6 +503,70 @@
       <button id="dayLeave" class="btn btn-ghost">請假</button>
       <button id="dayNoteSave" class="btn btn-primary">儲存記事</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== 切換工作 Sheet ===== -->
+<div id="sheetJob" class="sheet">
+  <div class="sheet-mask" data-close></div>
+  <div class="glass sheet-body">
+    <div class="sheet-grip"></div>
+    <h2 class="sheet-title">💼 切換工作</h2>
+    <ul id="jobPicker" class="job-list"></ul>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" data-close>關閉</button>
+      <button id="jobAddFromSheet" class="btn btn-primary">新增工作</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 設定 PIN Sheet ===== -->
+<div id="sheetPin" class="sheet">
+  <div class="sheet-mask" data-close></div>
+  <div class="glass sheet-body">
+    <div class="sheet-grip"></div>
+    <h2 class="sheet-title">🔒 設定 PIN 碼</h2>
+    <p class="sheet-desc" id="pinStepDesc">請輸入 6 位數字</p>
+    <div class="pin-dots" id="setPinDots"></div>
+    <div class="pin-pad" id="setPinPad"></div>
+    <p id="setPinMsg" class="auth-msg"></p>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" data-close>取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 薪資單(列印 / 存成 PDF) ===== -->
+<div id="payslip" class="payslip">
+  <div class="ps-sheet">
+    <header class="ps-head">
+      <div>
+        <h1 class="ps-title">薪資明細表</h1>
+        <div class="ps-job" id="psJob">—</div>
+      </div>
+      <div class="ps-meta">
+        <div id="psPeriod">—</div>
+        <div id="psPayDate">—</div>
+      </div>
+    </header>
+    <table class="ps-table">
+      <tbody id="psSummary"></tbody>
+    </table>
+    <h2 class="ps-sub">出勤明細</h2>
+    <table class="ps-table ps-detail">
+      <thead>
+        <tr><th>日期</th><th>星期</th><th>上班</th><th>下班</th><th>工時</th><th>加班</th><th>假別</th><th>工資</th></tr>
+      </thead>
+      <tbody id="psRows"></tbody>
+    </table>
+    <footer class="ps-foot">
+      <div id="psTotal" class="ps-total">—</div>
+      <p class="ps-note">本表由「打卡日記」依打卡紀錄自動產生,僅供個人對帳參考。加班費依勞基法 §24 計算(前 2 小時 ×1.34,第 3 小時起 ×1.67)。</p>
+    </footer>
+  </div>
+  <div class="ps-actions no-print">
+    <button id="psClose" class="btn btn-ghost">關閉</button>
+    <button id="psPrint" class="btn btn-primary">列印 / 存成 PDF</button>
   </div>
 </div>
 

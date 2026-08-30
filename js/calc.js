@@ -54,6 +54,93 @@ export const LEAVE = {
 };
 
 /* =========================================================
+   特休天數試算(勞基法 §38 週年制)
+   ---------------------------------------------------------
+   級距:滿 6 個月 3 天、滿 1 年 7 天、滿 2 年 10 天、滿 3 年 14 天、
+        滿 5 年 15 天、滿 10 年起每年加 1 天,最高 30 天。
+   採「週年制」:從到職日起算,是多數個人最直覺的算法。
+   ========================================================= */
+const ANNUAL_TIERS = [
+  { months: 6,   days: 3  },
+  { months: 12,  days: 7  },
+  { months: 24,  days: 10 },
+  { months: 36,  days: 14 },
+  { months: 48,  days: 14 },
+  { months: 60,  days: 15 }
+];
+
+/** 到職滿幾個月(不足月不進位) */
+export function monthsOfService(hireDate, ref = new Date()) {
+  if (!hireDate) return 0;
+  const h = parseYmd(hireDate);
+  if (isNaN(h) || h > ref) return 0;
+  let m = (ref.getFullYear() - h.getFullYear()) * 12 + (ref.getMonth() - h.getMonth());
+  if (ref.getDate() < h.getDate()) m--;      // 還沒到當月的到職日 → 不算滿
+  return Math.max(0, m);
+}
+
+/** 依年資算出應有特休天數 */
+export function annualLeaveDays(hireDate, ref = new Date()) {
+  const m = monthsOfService(hireDate, ref);
+  if (m < 6) return 0;
+  if (m < 60) {
+    let days = 0;
+    for (const t of ANNUAL_TIERS) if (m >= t.months) days = t.days;
+    return days;
+  }
+  // 滿 5 年 15 天;滿 10 年起每滿 1 年加 1 天,上限 30
+  const years = Math.floor(m / 12);
+  if (years < 10) return 15;
+  return Math.min(30, 15 + (years - 9));
+}
+
+/** 目前這個特休年度的起訖(週年制:到職日的週年 → 隔年前一天) */
+export function annualLeaveYear(hireDate, ref = new Date()) {
+  if (!hireDate) return null;
+  const h = parseYmd(hireDate);
+  if (isNaN(h) || h > ref) return null;
+  let start = new Date(ref.getFullYear(), h.getMonth(), h.getDate());
+  if (start > ref) start = new Date(ref.getFullYear() - 1, h.getMonth(), h.getDate());
+  const end = addDays(new Date(start.getFullYear() + 1, start.getMonth(), start.getDate()), -1);
+  return { from: ymd(start), to: ymd(end) };
+}
+
+/* =========================================================
+   台灣國定假日
+   ---------------------------------------------------------
+   固定日期的節日用規則產生;農曆節日(春節/清明/端午/中秋)
+   逐年不同,只能列表,所以先放 2026~2027,之後每年補一次即可。
+   ========================================================= */
+const LUNAR_HOLIDAYS = {
+  2026: {
+    "2026-02-16": "春節(除夕)", "2026-02-17": "春節初一", "2026-02-18": "春節初二",
+    "2026-02-19": "春節初三", "2026-04-05": "清明節", "2026-06-19": "端午節",
+    "2026-09-25": "中秋節"
+  },
+  2027: {
+    "2027-02-05": "春節(除夕)", "2027-02-06": "春節初一", "2027-02-07": "春節初二",
+    "2027-02-08": "春節初三", "2027-04-05": "清明節", "2027-06-09": "端午節",
+    "2027-09-15": "中秋節"
+  }
+};
+
+const FIXED_HOLIDAYS = {
+  "01-01": "開國紀念日",
+  "02-28": "和平紀念日",
+  "04-04": "兒童節",
+  "10-10": "國慶日"
+};
+
+/** 傳入 'YYYY-MM-DD',是國定假日則回傳名稱,否則回傳 null */
+export function holidayName(dateStr) {
+  const y = dateStr.slice(0, 4);
+  const md = dateStr.slice(5);
+  if (LUNAR_HOLIDAYS[y] && LUNAR_HOLIDAYS[y][dateStr]) return LUNAR_HOLIDAYS[y][dateStr];
+  if (FIXED_HOLIDAYS[md]) return FIXED_HOLIDAYS[md];
+  return null;
+}
+
+/* =========================================================
    單日工時:狀態機掃過所有事件
    ========================================================= */
 export function dayStats(day, settings, nowTs = Date.now()) {
@@ -203,6 +290,7 @@ export function summarize(days, settings, nowTs = Date.now()) {
     workDays: 0, leaveDays: 0, missingDays: 0,
     workSec: 0, normalSec: 0, otSec: 0, breakSec: 0, leaveSec: 0,
     normalPay: 0, otPay: 0, leavePay: 0, total: 0,
+    annualUsedDays: 0,
     rows: []
   };
   for (const day of days) {
@@ -210,6 +298,9 @@ export function summarize(days, settings, nowTs = Date.now()) {
     // 缺下班卡的日子人確實有來,一樣算出勤,只是時數要補卡後才正確
     if (s.workSec > 0 || s.missing) acc.workDays++;
     if (day.leave && day.leave.type) acc.leaveDays++;
+    if (day.leave && day.leave.type === "annual") {
+      acc.annualUsedDays += (Number(day.leave.hours) || 0) / (Number(settings.dailyHours) || 8);
+    }
     if (s.missing) acc.missingDays++;
     acc.workSec += s.workSec; acc.normalSec += s.normalSec; acc.otSec += s.otSec;
     acc.breakSec += s.breakSec; acc.leaveSec += s.leaveSec;
@@ -218,6 +309,21 @@ export function summarize(days, settings, nowTs = Date.now()) {
     acc.rows.push({ day, s });
   }
   return acc;
+}
+
+/* =========================================================
+   加班工時上限預警
+   勞基法 §32:延長工時連同正常工時,每月加班不得超過 46 小時。
+   ========================================================= */
+export const OT_MONTHLY_CAP_HOURS = 46;
+
+export function overtimeStatus(otSec, capHours = OT_MONTHLY_CAP_HOURS) {
+  const used = otSec / 3600;
+  const pct = capHours > 0 ? (used / capHours) * 100 : 0;
+  let level = "ok";
+  if (pct >= 100) level = "over";
+  else if (pct >= 80) level = "warn";
+  return { used, capHours, pct: Math.min(100, pct), remain: Math.max(0, capHours - used), level };
 }
 
 /* ---------- CSV 匯出 ---------- */
