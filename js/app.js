@@ -10,7 +10,8 @@ import {
   dayStats, daySalary, payPeriod, prevPayPeriod,
   monthRange, weekRange, summarize, toCSV,
   annualLeaveDays, annualLeaveYear, monthsOfService, holidayName,
-  overtimeStatus, OT_MONTHLY_CAP_HOURS
+  overtimeStatus, OT_MONTHLY_CAP_HOURS,
+  netPay, suggestInsuranceSalary, INSURANCE_YEAR
 } from "./calc.js";
 
 const $  = (s) => document.querySelector(s);
@@ -60,14 +61,17 @@ async function bootData() {
   const to   = [p.to, m.to, today].sort().reverse()[0];
   await Store.fetchRange(from, to);
 
+  applyTheme();
   bindSettingsUI();
   renderJobUI();
+  renderShortcutUrls();
   startTick();
   renderHome();
   renderTodayRecords();
   await renderQuota();
   checkMissing();
   scheduleReminder();
+  await handleShortcut();      // 網址帶 ?a=in/out 就直接打卡
 }
 
 /* =========================================================
@@ -352,6 +356,9 @@ async function runQuery(target, range) {
     $("#rPayNormal").textContent = money(sum.normalPay);
     $("#rPayOt").textContent = money(sum.otPay);
     $("#rPayLeave").textContent = money(sum.leavePay);
+    renderNet(sum);
+    await renderRecon(range, sum);
+    await renderAllJobs(range);
   }
 }
 
@@ -587,7 +594,11 @@ const SET_MAP = [
   ["#lvAnnual", "leaveAnnual", "number"], ["#lvSick", "leaveSick", "number"],
   ["#lvPersonal", "leavePersonal", "number"],
   ["#setGeo", "geo", "bool"], ["#setVibe", "vibrate", "bool"], ["#setWarn", "warnMissing", "bool"],
-  ["#setRemind", "remindEnabled", "bool"], ["#setRemindTime", "remindTime", "text"]
+  ["#setRemind", "remindEnabled", "bool"], ["#setRemindTime", "remindTime", "text"],
+  ["#setTheme", "theme", "text"],
+  ["#setNet", "netEnabled", "bool"], ["#setInsSalary", "insuranceSalary", "number"],
+  ["#setDependents", "dependents", "number"], ["#setPensionSelf", "pensionSelfPct", "number"],
+  ["#setOtherDeduct", "otherDeduct", "number"]
 ];
 
 function bindSettingsUI() {
@@ -602,6 +613,7 @@ function bindSettingsUI() {
       updateCyclePreview();
       if (key === "name") renderJobUI();
       if (key === "remindEnabled" || key === "remindTime") scheduleReminder();
+      if (key === "theme") applyTheme();
       await refreshAll();
       toast("設定已儲存");
     };
@@ -613,6 +625,13 @@ function bindSettingsUI() {
 function updateCyclePreview() {
   $("#cutoffField").classList.toggle("hidden", S.cycleMode !== "custom");
   $("#remindTimeField").classList.toggle("hidden", !S.remindEnabled);
+  $("#netFields").classList.toggle("hidden", !S.netEnabled);
+  if (S.netEnabled) {
+    const est = (Number(S.wage) || 0) * (Number(S.dailyHours) || 8) * 22;   // 粗估月薪
+    $("#insSuggest").textContent = Number(S.insuranceSalary) > 0
+      ? `目前使用你填的 ${money(S.insuranceSalary)}。填 0 則改用系統建議值。`
+      : `留 0 會自動套用建議級距(依你的月收入約為 ${money(suggestInsuranceSalary(est))})。建議改填勞保局核定的實際金額。`;
+  }
   const p = payPeriod(S), prev = prevPayPeriod(S);
   $("#cyclePreview").innerHTML =
     `<b>本期</b>:${p.from} ~ ${p.to} → ${p.payDate} 發薪<br>` +
@@ -1128,4 +1147,183 @@ function fireNotify(title, body) {
         .catch(() => new Notification(title, { body }));
     } else new Notification(title, { body });
   } catch { toast(title); }
+}
+
+/* =========================================================
+   深色模式
+   ---------------------------------------------------------
+   auto = 跟隨系統;light / dark = 使用者強制指定
+   ========================================================= */
+const mediaDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+function applyTheme() {
+  const t = S.theme || "auto";
+  const dark = t === "dark" || (t === "auto" && mediaDark.matches);
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", dark ? "#1B1713" : "#EFE6D9");
+}
+mediaDark.addEventListener("change", () => { if ((S.theme || "auto") === "auto") applyTheme(); });
+
+/* =========================================================
+   實領淨額
+   ========================================================= */
+function effectiveInsuranceSalary(grossForPeriod) {
+  const manual = Number(S.insuranceSalary) || 0;
+  if (manual > 0) return manual;
+  return suggestInsuranceSalary(grossForPeriod);
+}
+
+function renderNet(sum) {
+  const card = $("#netCard");
+  if (!S.netEnabled) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+
+  const ins = effectiveInsuranceSalary(sum.total);
+  const n = netPay(sum.total, {
+    insuranceSalary: ins,
+    dependents: S.dependents,
+    pensionSelfPct: S.pensionSelfPct,
+    otherDeduct: S.otherDeduct
+  });
+
+  $("#netInsTag").textContent = `投保 ${money(ins)}`;
+  $("#netGross").textContent = money(n.gross);
+  $("#netLabor").textContent = "- " + money(n.labor);
+  $("#netHealth").textContent = "- " + money(n.health);
+  $("#netHealthLabel").textContent =
+    `健保費(自付 30%${S.dependents > 0 ? ` ‧ 本人+${S.dependents} 眷` : ""})`;
+
+  $("#netPensionRow").classList.toggle("hidden", !n.pension);
+  $("#netPension").textContent = "- " + money(n.pension);
+  $("#netOtherRow").classList.toggle("hidden", !n.other);
+  $("#netOther").textContent = "- " + money(n.other);
+  $("#netFinal").textContent = money(n.net);
+
+  $("#netNote").innerHTML =
+    `雇主另外幫你提繳勞退 <b>${money(n.employerPension)}</b>(不從薪水扣,進你的勞退專戶)。<br>` +
+    `<span style="color:var(--ink-faint)">依 ${INSURANCE_YEAR} 年費率試算,未計入所得稅。` +
+    (Number(S.insuranceSalary) > 0 ? "投保薪資為你自行填寫。" : "投保薪資為系統依本期金額建議,建議改填實際核定金額。") +
+    `</span>`;
+}
+
+/* =========================================================
+   薪資對帳
+   ========================================================= */
+let reconPeriod = null;
+
+async function renderRecon(range, sum) {
+  reconPeriod = range.from;
+  $("#reconTag").textContent = range.label || `${range.from} ~ ${range.to}`;
+
+  const saved = await Store.getRecon(range.from);
+  $("#reconActual").value = saved ? saved.actual : "";
+  $("#reconNote").value = saved ? (saved.note || "") : "";
+
+  const box = $("#reconResult");
+  if (!saved) { box.classList.add("hidden"); return; }
+
+  // 有開實領試算就跟淨額比,否則跟應領比
+  let expected = sum.total, label = "應領工資";
+  if (S.netEnabled) {
+    const ins = effectiveInsuranceSalary(sum.total);
+    expected = netPay(sum.total, {
+      insuranceSalary: ins, dependents: S.dependents,
+      pensionSelfPct: S.pensionSelfPct, otherDeduct: S.otherDeduct
+    }).net;
+    label = "預估實領";
+  }
+
+  const diff = Math.round(saved.actual - expected);
+  box.classList.remove("hidden");
+  box.className = "recon-result " + (Math.abs(diff) <= 1 ? "recon-ok" : "recon-diff");
+  box.innerHTML = Math.abs(diff) <= 1
+    ? `✅ 完全相符<br>${label} ${money(expected)} ‧ 實際入帳 ${money(saved.actual)}`
+    : `${diff > 0 ? "🔵 多給了" : "⚠️ 少給了"} <b>${money(Math.abs(diff))}</b><br>` +
+      `${label} ${money(expected)} ‧ 實際入帳 ${money(saved.actual)}` +
+      (saved.note ? `<br><span style="opacity:.8">備註:${escapeHtml(saved.note)}</span>` : "");
+}
+
+$("#reconSave").onclick = async () => {
+  if (!reconPeriod) return toast("請先查詢一個區間");
+  const v = Number($("#reconActual").value);
+  if (!v || v < 0) return toast("請輸入實際入帳金額");
+  await Store.saveRecon(reconPeriod, { actual: v, note: $("#reconNote").value.trim() });
+  const q = queryState.pay;
+  if (q) await renderRecon(q.range, q.summary);
+  toast("已儲存對帳紀錄");
+};
+
+$("#reconClear").onclick = async () => {
+  if (!reconPeriod) return;
+  await Store.clearRecon(reconPeriod);
+  $("#reconActual").value = ""; $("#reconNote").value = "";
+  $("#reconResult").classList.add("hidden");
+  toast("已清除對帳紀錄");
+};
+
+/* =========================================================
+   跨工作總覽
+   ========================================================= */
+async function renderAllJobs(range) {
+  const jobs = Store.getJobs();
+  const card = $("#allJobsCard");
+  if (jobs.length < 2) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+  $("#allJobsTag").textContent = range.label || `${range.from} ~ ${range.to}`;
+
+  const activeId = Store.getActiveJobId();
+  const rows = [];
+  for (const j of jobs) {
+    const days = await Store.fetchRangeForJob(j.id, range.from, range.to);
+    // 每份工作用自己的時薪與工時設定計算
+    const sum = summarize(days, { ...S, ...j });
+    rows.push({ job: j, sum });
+  }
+
+  $("#allJobsList").innerHTML = rows.map(({ job, sum }) => `
+    <li class="alljob-item">
+      <span class="job-dot">${jobIcon(job.id)}</span>
+      <span class="alljob-main">
+        <span class="alljob-nm">${escapeHtml(job.name)}${job.id === activeId ? " ‧ 使用中" : ""}</span>
+        <span class="alljob-sub">${sum.workDays} 天 ‧ ${hours2(sum.workSec)} 小時</span>
+      </span>
+      <span class="alljob-pay">${money(sum.total)}</span>
+    </li>`).join("");
+
+  $("#allJobsTotal").textContent = money(rows.reduce((s, r) => s + r.sum.total, 0));
+}
+
+/* =========================================================
+   快速打卡捷徑(網址參數)
+   ---------------------------------------------------------
+   ?a=in / ?a=out → 開啟即打卡,適合做成主畫面圖示或 Siri 捷徑
+   ========================================================= */
+function renderShortcutUrls() {
+  const base = location.origin + location.pathname;
+  $("#urlIn").textContent  = base + "?a=in";
+  $("#urlOut").textContent = base + "?a=out";
+}
+
+$$("[data-copy]").forEach(b => b.onclick = async () => {
+  const txt = $("#" + b.dataset.copy).textContent;
+  try {
+    await navigator.clipboard.writeText(txt);
+    toast("已複製網址");
+  } catch {
+    // 沒有剪貼簿權限就選起來讓使用者自己複製
+    const r = document.createRange();
+    r.selectNodeContents($("#" + b.dataset.copy));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    toast("請長按選取的文字複製");
+  }
+});
+
+/* 啟動時檢查網址參數 */
+async function handleShortcut() {
+  const a = new URLSearchParams(location.search).get("a");
+  if (a !== "in" && a !== "out") return;
+  history.replaceState({}, "", location.pathname);   // 清掉參數,避免重整又打一次
+  if (Lock.isEnabled()) return toast("請先解鎖才能打卡");
+  await punch(a);
 }

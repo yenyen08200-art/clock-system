@@ -33,6 +33,11 @@ service cloud.firestore {
                        && request.auth.uid == userId
                        && dateId.matches('^\\d{4}-\\d{2}-\\d{2}$');
         }
+
+        // 薪資對帳:每期實際入帳金額
+        match /recon/{periodId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
       }
     }
 

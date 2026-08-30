@@ -491,3 +491,125 @@ textarea{resize:vertical;line-height:1.7;font-size:14.5px;}
 .cal-cell.has-holiday{background:linear-gradient(145deg,rgba(238,220,228,.62),rgba(214,184,198,.3));}
 .cal-hol{font-size:8.5px;color:var(--terra-deep);line-height:1;text-align:center;}
 .dot-holiday{background:#C9899E;}
+
+/* ============ 實領淨額 / 對帳 / 跨工作 ============ */
+.pay-break-top{margin-top:0;padding-top:0;border-top:none;}
+.pay-line.minus b{color:var(--terra-deep);}
+.net-total{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:14px 16px;
+  border-radius:var(--r-sm);background:linear-gradient(135deg,rgba(214,192,166,.55),rgba(188,158,126,.32));
+  border:1px solid rgba(255,255,255,.75);}
+.net-total span{font-size:13px;color:var(--bark-700);}
+.net-total strong{font-size:23px;font-weight:700;color:var(--bark-700);}
+
+.recon-result{margin-top:12px;padding:12px 14px;border-radius:var(--r-sm);font-size:13px;line-height:1.8;}
+.recon-ok{background:rgba(147,165,127,.18);border:1px solid rgba(147,165,127,.4);color:var(--sage-deep);}
+.recon-diff{background:rgba(201,131,88,.15);border:1px solid rgba(201,131,88,.35);color:var(--terra-deep);}
+.recon-result b{font-size:15px;}
+
+.alljob-list{list-style:none;margin:0;padding:0;}
+.alljob-item{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid rgba(122,96,71,.1);}
+.alljob-item:last-child{border-bottom:none;}
+.alljob-main{flex:1;min-width:0;}
+.alljob-nm{font-size:13.5px;font-weight:500;}
+.alljob-sub{font-size:11px;color:var(--ink-faint);margin-top:2px;}
+.alljob-pay{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;}
+.alljob-total{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:13px 15px;
+  border-radius:var(--r-sm);background:linear-gradient(135deg,rgba(214,192,166,.5),rgba(188,158,126,.3));
+  border:1px solid rgba(255,255,255,.7);}
+.alljob-total span{font-size:13px;color:var(--bark-700);}
+.alljob-total strong{font-size:20px;font-weight:700;}
+
+.url-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.url-row code{flex:1;min-width:0;padding:9px 11px;border-radius:var(--r-sm);font-size:11px;
+  font-family:var(--mono);color:var(--bark-700);background:rgba(255,255,255,.45);
+  border:1px solid rgba(255,255,255,.7);overflow-x:auto;white-space:nowrap;}
+
+/* ============ 深色模式 ============ */
+:root[data-theme="dark"]{
+  --sand-50:#221D18;
+  --sand-100:#1B1713;
+  --sand-200:#262019;
+  --clay-200:#3A3129;
+  --clay-300:#4A3F34;
+  --mocha-400:#C0A386;
+  --mocha-500:#A98D71;
+  --bark-600:#D8C6B0;
+  --bark-700:#EFE3D3;
+  --ink:#F0E7DA;
+  --ink-soft:#BCAB96;
+  --ink-faint:#8C7C6A;
+
+  --sage:#9DB088;
+  --sage-deep:#B5C7A0;
+  --terra:#E09A6B;
+  --terra-deep:#F0B489;
+  --mist:#93A9B2;
+
+  --glass-bg:linear-gradient(140deg, rgba(58,49,41,.72), rgba(43,36,30,.5));
+  --glass-bg-thin:linear-gradient(140deg, rgba(58,49,41,.62), rgba(43,36,30,.42));
+  --glass-border:rgba(255,244,230,.14);
+  --glass-shadow:0 10px 30px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.28);
+  --glass-inset:inset 0 1px 0 rgba(255,244,230,.1), inset 0 -1px 0 rgba(255,244,230,.04);
+}
+:root[data-theme="dark"] body{background:var(--sand-100);}
+:root[data-theme="dark"] .bg-stage{
+  background:
+    radial-gradient(120% 80% at 12% 6%,  #2A231C 0%, rgba(42,35,28,0) 60%),
+    radial-gradient(110% 70% at 88% 12%, #2E251D 0%, rgba(46,37,29,0) 62%),
+    radial-gradient(120% 90% at 50% 108%,#241E18 0%, rgba(36,30,24,0) 70%),
+    linear-gradient(168deg,#1F1A15 0%, #191410 45%, #14100D 100%);
+}
+:root[data-theme="dark"] .blob{opacity:.3;}
+:root[data-theme="dark"] .mist{opacity:.16;}
+:root[data-theme="dark"] .grain{opacity:.3;mix-blend-mode:overlay;}
+:root[data-theme="dark"] .glass::before{
+  background:linear-gradient(150deg, rgba(255,244,230,.1) 0%, rgba(255,244,230,.02) 34%, rgba(255,255,255,0) 58%, rgba(255,244,230,.04) 100%);
+}
+:root[data-theme="dark"] input[type=text],
+:root[data-theme="dark"] input[type=email],
+:root[data-theme="dark"] input[type=password],
+:root[data-theme="dark"] input[type=number],
+:root[data-theme="dark"] input[type=date],
+:root[data-theme="dark"] input[type=time],
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea{
+  background:rgba(255,244,230,.07);border-color:rgba(255,244,230,.14);color:var(--ink);
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.25);
+}
+:root[data-theme="dark"] select{
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' fill='none' stroke='%23BCAB96' stroke-width='1.6' stroke-linecap='round'/></svg>");
+}
+:root[data-theme="dark"] .btn{background:rgba(255,244,230,.09);border-color:rgba(255,244,230,.16);color:var(--bark-700);
+  box-shadow:0 4px 14px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,244,230,.08);}
+:root[data-theme="dark"] .btn-primary{background:linear-gradient(135deg,var(--mocha-500),#8A6E52);color:#1B1713;}
+:root[data-theme="dark"] .stat,
+:root[data-theme="dark"] .tag,
+:root[data-theme="dark"] .day-chip,
+:root[data-theme="dark"] .status-pill,
+:root[data-theme="dark"] .cal-nav,
+:root[data-theme="dark"] .chip,
+:root[data-theme="dark"] .tl-ico,
+:root[data-theme="dark"] .job-dot,
+:root[data-theme="dark"] .job-chip{background:rgba(255,244,230,.08);border-color:rgba(255,244,230,.14);}
+:root[data-theme="dark"] .chip-on{background:linear-gradient(135deg,var(--mocha-500),#8A6E52);color:#1B1713;}
+:root[data-theme="dark"] .tab-on{background:rgba(255,244,230,.12);}
+:root[data-theme="dark"] .cal-cell{background:rgba(255,244,230,.05);border-color:rgba(255,244,230,.1);}
+:root[data-theme="dark"] .cal-cell.has-work{background:linear-gradient(145deg,rgba(120,140,100,.4),rgba(90,110,75,.22));}
+:root[data-theme="dark"] .cal-cell.has-leave{background:linear-gradient(145deg,rgba(100,125,140,.4),rgba(75,95,110,.22));}
+:root[data-theme="dark"] .cal-cell.has-warn{background:linear-gradient(145deg,rgba(170,110,70,.4),rgba(140,85,50,.22));}
+:root[data-theme="dark"] .cal-cell.has-holiday{background:linear-gradient(145deg,rgba(150,95,115,.38),rgba(120,72,90,.2));}
+:root[data-theme="dark"] .action-in{background:linear-gradient(145deg,rgba(120,140,100,.42),rgba(90,110,75,.24));}
+:root[data-theme="dark"] .action-out{background:linear-gradient(145deg,rgba(175,115,80,.42),rgba(140,88,58,.24));}
+:root[data-theme="dark"] .period-range,
+:root[data-theme="dark"] .sync-state,
+:root[data-theme="dark"] .trend-summary,
+:root[data-theme="dark"] .hint-box,
+:root[data-theme="dark"] .url-row code{background:rgba(255,244,230,.05);}
+:root[data-theme="dark"] .hint-box{border-color:rgba(255,244,230,.16);}
+:root[data-theme="dark"] .toast{background:rgba(45,38,31,.94);border-color:rgba(255,244,230,.16);color:var(--ink);}
+:root[data-theme="dark"] .switch{background:rgba(255,244,230,.14);border-color:rgba(255,244,230,.14);}
+:root[data-theme="dark"] .pin-key{background:rgba(255,244,230,.08);border-color:rgba(255,244,230,.14);}
+:root[data-theme="dark"] .pin-dot{background:rgba(255,244,230,.16);border-color:rgba(255,244,230,.12);}
+:root[data-theme="dark"] .sheet-mask{background:rgba(0,0,0,.55);}
+:root[data-theme="dark"] .payslip{background:rgba(27,23,19,.97);}
+/* 薪資單本身維持白底黑字,因為是要列印的 */

@@ -232,6 +232,61 @@
         </div>
       </div>
 
+      <!-- 實領淨額 -->
+      <div class="glass card hidden" id="netCard">
+        <div class="card-head">
+          <h2 class="card-title">實領淨額試算</h2>
+          <span class="tag" id="netInsTag">—</span>
+        </div>
+        <div class="pay-break pay-break-top">
+          <div class="pay-line"><span>應領工資</span><b id="netGross">NT$ 0</b></div>
+          <div class="pay-line minus"><span>勞保費(自付 20%)</span><b id="netLabor">- NT$ 0</b></div>
+          <div class="pay-line minus"><span id="netHealthLabel">健保費(自付 30%)</span><b id="netHealth">- NT$ 0</b></div>
+          <div class="pay-line minus" id="netPensionRow"><span>勞退自願提繳</span><b id="netPension">- NT$ 0</b></div>
+          <div class="pay-line minus" id="netOtherRow"><span>其他扣款</span><b id="netOther">- NT$ 0</b></div>
+        </div>
+        <div class="net-total">
+          <span>預估實領</span>
+          <strong id="netFinal">NT$ 0</strong>
+        </div>
+        <div class="hint-box mt8" id="netNote">—</div>
+      </div>
+
+      <!-- 薪資對帳 -->
+      <div class="glass card">
+        <div class="card-head">
+          <h2 class="card-title">薪資對帳</h2>
+          <span class="tag" id="reconTag">—</span>
+        </div>
+        <p class="sheet-desc">領到薪水後填入實際入帳金額,系統會自動比對差額。</p>
+        <div class="field">
+          <label for="reconActual">實際入帳金額 (NT$)</label>
+          <input id="reconActual" type="number" min="0" step="1" inputmode="numeric" placeholder="例:24800" />
+        </div>
+        <div class="field">
+          <label for="reconNote">備註 (選填)</label>
+          <input id="reconNote" type="text" placeholder="例:含全勤獎金 1000" />
+        </div>
+        <div class="export-row">
+          <button id="reconClear" class="btn btn-ghost">清除</button>
+          <button id="reconSave" class="btn btn-primary">儲存對帳</button>
+        </div>
+        <div id="reconResult" class="recon-result hidden"></div>
+      </div>
+
+      <!-- 跨工作總覽 -->
+      <div class="glass card hidden" id="allJobsCard">
+        <div class="card-head">
+          <h2 class="card-title">全部工作總覽</h2>
+          <span class="tag" id="allJobsTag">—</span>
+        </div>
+        <ul id="allJobsList" class="alljob-list"></ul>
+        <div class="alljob-total">
+          <span>合計總收入</span>
+          <strong id="allJobsTotal">NT$ 0</strong>
+        </div>
+      </div>
+
       <!-- 趨勢圖 -->
       <div class="glass card">
         <div class="card-head">
@@ -352,11 +407,75 @@
         <div id="cyclePreview" class="hint-box">—</div>
       </div>
 
+      <!-- 實領淨額設定 -->
+      <div class="glass card">
+        <h2 class="card-title mb8">實領淨額試算</h2>
+        <label class="switch-row">
+          <span>計算勞健保扣款 <small>算出扣完保費後真正入帳的金額</small></span>
+          <input id="setNet" type="checkbox" class="switch" />
+        </label>
+        <div id="netFields" class="hidden">
+          <div class="field mt8">
+            <label for="setInsSalary">投保薪資 (NT$)</label>
+            <input id="setInsSalary" type="number" min="0" step="100" inputmode="numeric" />
+            <p class="field-note" id="insSuggest">—</p>
+          </div>
+          <div class="field">
+            <label for="setDependents">健保眷屬人數 <small>最多計 3 口</small></label>
+            <input id="setDependents" type="number" min="0" max="3" step="1" inputmode="numeric" />
+          </div>
+          <div class="field">
+            <label for="setPensionSelf">勞退自願提繳 (%) <small>0~6,雇主的 6% 不從你薪水扣</small></label>
+            <input id="setPensionSelf" type="number" min="0" max="6" step="1" inputmode="numeric" />
+          </div>
+          <div class="field">
+            <label for="setOtherDeduct">其他固定扣款 (NT$)</label>
+            <input id="setOtherDeduct" type="number" min="0" step="1" inputmode="numeric" />
+          </div>
+          <div class="hint-box">
+            <b>2026 年費率</b>:勞保 12.5%(自付 20%)、健保 5.17%(自付 30%)、勞退雇主提繳 6%。<br>
+            <span style="color:var(--ink-faint)">投保薪資請以勞保局核定為準(可查勞保局 e 化服務或薪資單),系統的建議值僅供參考。所得稅未納入計算。</span>
+          </div>
+        </div>
+      </div>
+
       <div class="glass card">
         <h2 class="card-title mb8">請假給薪規則</h2>
         <div class="field"><label for="lvAnnual">特休 / 國定假日 給薪比例 (%)</label><input id="lvAnnual" type="number" min="0" max="200" step="10" inputmode="numeric" /></div>
         <div class="field"><label for="lvSick">病假 給薪比例 (%)</label><input id="lvSick" type="number" min="0" max="100" step="10" inputmode="numeric" /></div>
         <div class="field"><label for="lvPersonal">事假 給薪比例 (%)</label><input id="lvPersonal" type="number" min="0" max="100" step="10" inputmode="numeric" /></div>
+      </div>
+
+      <div class="glass card">
+        <h2 class="card-title mb8">外觀</h2>
+        <div class="field">
+          <label for="setTheme">主題</label>
+          <select id="setTheme">
+            <option value="auto">跟隨系統</option>
+            <option value="light">淺色</option>
+            <option value="dark">深色</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 快速打卡捷徑 -->
+      <div class="glass card">
+        <h2 class="card-title mb8">快速打卡捷徑</h2>
+        <p class="sheet-desc">用網址直接打卡,可以做成手機主畫面圖示,或用 Siri 語音打卡,不必開 App 找按鈕。</p>
+        <div class="url-row">
+          <code id="urlIn">—</code>
+          <button class="btn btn-ghost btn-sm" data-copy="urlIn">複製</button>
+        </div>
+        <div class="url-row">
+          <code id="urlOut">—</code>
+          <button class="btn btn-ghost btn-sm" data-copy="urlOut">複製</button>
+        </div>
+        <div class="hint-box mt8">
+          <b>iPhone 設定方式</b><br>
+          開啟「捷徑」App → 新增捷徑 → 加入動作「打開 URL」→ 貼上網址 →
+          命名為「我要上班」→ 完成後即可對 Siri 說出這個名字,或加到主畫面。<br>
+          <span style="color:var(--ink-faint)">Android 用 Chrome 開網址後選「加到主畫面」也可以。</span>
+        </div>
       </div>
 
       <div class="glass card">

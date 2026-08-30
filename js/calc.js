@@ -355,3 +355,75 @@ export function toCSV(summary, settings, range) {
   L.push(`合計,${Math.round(summary.total)}`);
   return "﻿" + L.join("\n");   // BOM,Excel 開啟不亂碼
 }
+
+/* =========================================================
+   實領淨額試算(2026 / 民國 115 年費率)
+   ---------------------------------------------------------
+   勞保:費率 12.5%(普通事故 11.5% + 就業保險 1%),勞工自付 20%
+         → 投保薪資 × 12.5% × 20% = × 2.5%
+   健保:費率 5.17%,勞工自付 30%,眷屬另計(最多計 3 口)
+         → 投保金額 × 5.17% × 30% × (1 + 眷屬數)
+   勞退:雇主強制提繳 6%(不從薪水扣),勞工可自願另提 0~6%(從薪水扣)
+
+   投保薪資「級距」只是建議值,實際以勞保局核定為準,
+   所以 UI 允許使用者直接填自己的實際投保薪資覆蓋。
+   ========================================================= */
+
+export const INSURANCE_YEAR = 2026;
+export const LABOR_RATE   = 0.125;   // 勞保 + 就保 費率
+export const LABOR_SELF   = 0.20;    // 勞工自付比例
+export const HEALTH_RATE  = 0.0517;  // 健保費率
+export const HEALTH_SELF  = 0.30;    // 勞工自付比例
+export const HEALTH_MAX_DEPENDENTS = 3;
+
+/* 2026 年勞保投保薪資分級表(基本工資 29,500 起,共 11 級) */
+export const LABOR_BRACKETS = [
+  29500, 30300, 31800, 33300, 34800, 36300, 38200, 40100, 42000, 43900, 45800
+];
+
+/* 部分工時者投保薪資分級(低於基本工資時適用的前兩級) */
+export const PARTTIME_BRACKETS = [11100, 12540];
+
+/**
+ * 依月薪推算建議的投保薪資級距。
+ * 只是建議 — 實際級距以勞保局核定為準,使用者可自行覆蓋。
+ */
+export function suggestInsuranceSalary(monthlyPay) {
+  const p = Math.max(0, Number(monthlyPay) || 0);
+  for (const b of PARTTIME_BRACKETS) if (p <= b) return b;
+  for (const b of LABOR_BRACKETS) if (p <= b) return b;
+  return LABOR_BRACKETS[LABOR_BRACKETS.length - 1];   // 超過最高級距就用最高級
+}
+
+/**
+ * 計算實領淨額。
+ * @param grossPay   應領工資(本期算出來的薪資)
+ * @param opt.insuranceSalary  投保薪資(0 = 不計勞健保)
+ * @param opt.dependents       健保眷屬人數
+ * @param opt.pensionSelfPct   勞退自願提繳 %(0~6)
+ * @param opt.otherDeduct      其他固定扣款
+ */
+export function netPay(grossPay, opt = {}) {
+  const ins = Math.max(0, Number(opt.insuranceSalary) || 0);
+  const deps = Math.min(HEALTH_MAX_DEPENDENTS, Math.max(0, Number(opt.dependents) || 0));
+  const selfPct = Math.min(6, Math.max(0, Number(opt.pensionSelfPct) || 0));
+  const other = Math.max(0, Number(opt.otherDeduct) || 0);
+
+  // 勞保費、健保費在薪資單上是各自獨立的項目,實務上各自計算到元,
+  // 所以這裡逐項四捨五入 —— 否則會出現「738 + 458 = 1195」這種看起來像算錯的合計。
+  const labor = ins ? Math.round(ins * LABOR_RATE * LABOR_SELF) : 0;
+  // 健保:官方「保險費負擔金額表」是先算出單一口的金額取整,再乘上人數
+  // (所以表上眷屬的金額都剛好是本人的整數倍),這裡照同樣順序算。
+  const healthOne = ins ? Math.round(ins * HEALTH_RATE * HEALTH_SELF) : 0;
+  const health = healthOne * (1 + deps);
+  const pension = ins ? Math.round(ins * (selfPct / 100)) : 0;
+
+  const deductions = labor + health + pension + other;
+  return {
+    gross: grossPay,
+    labor, health, pension, other,
+    deductions,
+    net: grossPay - deductions,
+    employerPension: ins ? ins * 0.06 : 0   // 雇主提繳,不從薪水扣,僅供參考
+  };
+}

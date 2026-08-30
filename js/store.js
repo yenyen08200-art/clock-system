@@ -45,7 +45,13 @@ export const DEFAULT_JOB = {
   leaveAnnual: 100,     // 特休 / 國定假日 給薪 %
   leaveSick: 50,        // 病假 給薪 %
   leavePersonal: 0,     // 事假 給薪 %
-  hireDate: ""          // 到職日,用來算特休
+  hireDate: "",         // 到職日,用來算特休
+  // --- 實領淨額試算 ---
+  netEnabled: false,    // 是否計算勞健保扣款
+  insuranceSalary: 0,   // 投保薪資(0 = 依月薪自動建議)
+  dependents: 0,        // 健保眷屬人數
+  pensionSelfPct: 0,    // 勞退自願提繳 %
+  otherDeduct: 0        // 其他固定扣款
 };
 
 /* 跨工作共用的偏好 */
@@ -56,6 +62,7 @@ export const DEFAULT_PREFS = {
   otCapHours: 46,       // 勞基法每月加班上限
   remindEnabled: false, // 忘記打卡提醒
   remindTime: "18:30",  // 提醒時間
+  theme: "auto",        // auto | light | dark
   activeJobId: ""
 };
 
@@ -171,7 +178,7 @@ async function bootLocalJobs() {
 }
 
 function loadActiveCacheLocal() {
-  cache.clear(); loadedRanges = [];
+  cache.clear(); loadedRanges = []; reconCache.clear();
   const all = lsGet(LS_JOBDAYS, {});
   const mine = all[activeJobId] || {};
   Object.entries(mine).forEach(([k, v]) => cache.set(k, v));
@@ -240,7 +247,7 @@ export function useLocal() {
 
 export async function logout() {
   localStorage.removeItem(LS_MODE);
-  cache.clear(); loadedRanges = []; jobs = []; activeJobId = "";
+  cache.clear(); loadedRanges = []; reconCache.clear(); jobs = []; activeJobId = "";
   if (fb && fb.auth.currentUser) await fb.A.signOut(fb.auth);
   else authCb({ mode: null, user: null, ready: true });
 }
@@ -303,7 +310,7 @@ export async function switchJob(jobId) {
 }
 
 async function reloadActiveCache() {
-  cache.clear(); loadedRanges = [];
+  cache.clear(); loadedRanges = []; reconCache.clear();
   if (mode === "local") loadActiveCacheLocal();
 }
 
@@ -472,6 +479,51 @@ export async function fetchRange(from, to) {
   cache.forEach((v, k) => { if (k >= from && k <= to) out.push(v); });
   out.sort((a, b) => a.date.localeCompare(b.date));
   return out;
+}
+
+/* =========================================================
+   薪資對帳:記錄每期「實際入帳金額」,和系統算出來的比對
+   文件 id 用該期的起始日,例如 2026-08-05
+   ========================================================= */
+const LS_RECON = "tc_recon";        // { jobId: { periodFrom: {...} } }
+const reconCache = new Map();
+
+export async function getRecon(periodFrom) {
+  if (reconCache.has(periodFrom)) return reconCache.get(periodFrom);
+  if (mode === "firebase") {
+    const { doc, getDoc } = fb.D;
+    try {
+      const snap = await getDoc(doc(fb.db, "users", uid, "jobs", activeJobId, "recon", periodFrom));
+      const v = snap.exists() ? snap.data() : null;
+      if (v) reconCache.set(periodFrom, v);
+      return v;
+    } catch { return null; }
+  }
+  const all = lsGet(LS_RECON, {});
+  return (all[activeJobId] || {})[periodFrom] || null;
+}
+
+export async function saveRecon(periodFrom, data) {
+  const rec = { ...data, periodFrom, updatedAt: Date.now() };
+  reconCache.set(periodFrom, rec);
+  const all = lsGet(LS_RECON, {});
+  all[activeJobId] = { ...(all[activeJobId] || {}), [periodFrom]: rec };
+  lsSet(LS_RECON, all);
+  if (mode !== "firebase") return;
+  const { doc, setDoc } = fb.D;
+  try {
+    await setDoc(doc(fb.db, "users", uid, "jobs", activeJobId, "recon", periodFrom), rec);
+    notifySync("對帳紀錄已同步");
+  } catch (e) { notifySync("同步失敗:" + e.message); }
+}
+
+export async function clearRecon(periodFrom) {
+  reconCache.delete(periodFrom);
+  const all = lsGet(LS_RECON, {});
+  if (all[activeJobId]) { delete all[activeJobId][periodFrom]; lsSet(LS_RECON, all); }
+  if (mode !== "firebase") return;
+  const { doc, deleteDoc } = fb.D;
+  try { await deleteDoc(doc(fb.db, "users", uid, "jobs", activeJobId, "recon", periodFrom)); } catch {}
 }
 
 /* 查詢「其他工作」的區間資料,用於跨工作的總覽,不影響目前快取 */
