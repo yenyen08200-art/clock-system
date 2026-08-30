@@ -225,8 +225,6 @@ textarea{resize:vertical;line-height:1.7;font-size:14.5px;}
 
 .action-in{background:linear-gradient(145deg,rgba(214,229,203,.72),rgba(178,199,163,.42));}
 .action-out{background:linear-gradient(145deg,rgba(240,214,196,.72),rgba(214,169,138,.42));}
-.action-break{background:linear-gradient(145deg,rgba(243,228,203,.7),rgba(222,199,161,.4));}
-.action-back{background:linear-gradient(145deg,rgba(219,228,235,.7),rgba(184,201,214,.4));}
 
 .action.pulse{animation:pulseGlow 2.4s ease-in-out infinite;}
 @keyframes pulseGlow{0%,100%{box-shadow:var(--glass-shadow),var(--glass-inset)}50%{box-shadow:0 10px 30px rgba(147,165,127,.4),0 0 0 5px rgba(147,165,127,.14),var(--glass-inset)}}
@@ -261,6 +259,7 @@ textarea{resize:vertical;line-height:1.7;font-size:14.5px;}
 .pay-line{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:var(--ink-soft);}
 .pay-line b{color:var(--ink);font-weight:600;}
 .hint-box{margin-top:6px;padding:12px 14px;border-radius:var(--r-sm);font-size:12.5px;line-height:1.8;color:var(--bark-600);background:rgba(255,255,255,.42);border:1px dashed rgba(160,128,95,.32);}
+.hint-inline{margin:2px 4px 14px;font-size:12px;line-height:1.6;color:var(--ink-faint);text-align:center;}
 
 /* ============ 查詢 chips ============ */
 .chip-row{display:flex;flex-wrap:wrap;gap:8px;}

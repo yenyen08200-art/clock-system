@@ -23,9 +23,7 @@ let tickTimer = null;
 /* ---------- 鼓勵語 ---------- */
 const CHEER = {
   in:         { ico: "🌅", msgs: ["上班加油!", "今天也要順順利利 ✨", "開工囉,你可以的!", "元氣滿滿的一天 ☀️", "今天也辛苦你了 💪"] },
-  out:        { ico: "🌇", msgs: ["辛苦了!", "今天也很棒 👏", "下班囉,好好休息 🌙", "做得好,回家放鬆吧", "今天的努力都記下來了 💛"] },
-  breakStart: { ico: "🍱", msgs: ["好好吃飯 🍚", "午休時間,放鬆一下", "休息是為了走更遠的路"] },
-  breakEnd:   { ico: "☕", msgs: ["回來囉,再撐一下 💪", "下半場加油!", "繼續前進 ✨"] },
+  out:        { ico: "🌇", msgs: ["辛苦了!", "今天也很棒 👏", "好好休息一下 🌙", "做得好,先喘口氣", "先去休息,等等再回來 💛"] },
   leave:      { ico: "🏖️", msgs: ["好好休息 🌿", "放假愉快!", "今天是屬於你的一天 ☁️"] }
 };
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -149,7 +147,7 @@ function liveNumbers(day) {
   $("#todayBar").style.width = Math.min(100, (s.workSec / target) * 100) + "%";
   $("#todayBreakLine").textContent =
     `休息 ${fmtHMS(s.breakSec)} ‧ ` +
-    (s.open ? (s.resting ? "休息中…" : "工作中…") : (s.count ? "今日已下班" : "尚未打卡"));
+    (s.open ? "工作中…" : (s.count ? "今日已下班" : "尚未打卡"));
 }
 
 /* =========================================================
@@ -163,9 +161,6 @@ async function punch(type, ripEl) {
   // 防呆
   if (type === "in" && st.open) return toast("已經在上班中囉");
   if (type === "out" && !st.open) return toast("還沒打上班卡,請先按上班或使用補卡");
-  if (type === "breakStart" && !st.open) return toast("先打上班卡才能休息喔");
-  if (type === "breakStart" && st.resting) return toast("已經在休息中了");
-  if (type === "breakEnd" && !st.resting) return toast("目前不在休息狀態");
 
   const ts = Date.now();
   const ev = { t: type, ts, manual: false };
@@ -195,8 +190,6 @@ async function punch(type, ripEl) {
 
 $("#actIn").onclick         = (e) => { ripple(e); punch("in"); };
 $("#actOut").onclick        = (e) => { ripple(e); punch("out"); };
-$("#actBreakStart").onclick = (e) => { ripple(e); punch("breakStart"); };
-$("#actBreakEnd").onclick   = (e) => { ripple(e); punch("breakEnd"); };
 $("#actLeave").onclick      = (e) => { ripple(e); openLeave(today); };
 $("#actFix").onclick        = (e) => { ripple(e); openFix(today); };
 
@@ -217,7 +210,6 @@ function renderHome() {
   const pill = $("#statusPill");
   pill.className = "status-pill";
   if (day.leave && day.leave.type && s.workSec === 0) { pill.textContent = LEAVE[day.leave.type].name; pill.classList.add("rest"); }
-  else if (s.resting) { pill.textContent = "休息中"; pill.classList.add("rest"); }
   else if (s.open)    { pill.textContent = "工作中"; pill.classList.add("on"); }
   else if (s.count)   { pill.textContent = "已下班"; }
   else                { pill.textContent = "未上班"; }
@@ -228,10 +220,8 @@ function renderHome() {
     el.disabled = !on;
     el.classList.toggle("pulse", on && pulse);
   };
-  set("#actIn", !s.open, !s.open && !s.count);
-  set("#actOut", s.open, s.open && !s.resting);
-  set("#actBreakStart", s.open && !s.resting);
-  set("#actBreakEnd", s.resting, s.resting);
+  set("#actIn", !s.open, !s.open);
+  set("#actOut", s.open, s.open);
 }
 
 /* 今日打卡紀錄(顯示在「紀錄」分頁最上方) */

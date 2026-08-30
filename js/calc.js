@@ -61,33 +61,36 @@ export function dayStats(day, settings, nowTs = Date.now()) {
   let working = false, resting = false, last = 0;
   let workSec = 0, breakSec = 0;
   let firstIn = null, lastOut = null;
+  let pendingOut = false;   // 已打下班卡,但當天可能還會再打上班(例如去吃午餐)
 
   const advance = (to) => {
     if (!last || to <= last) return;
     const span = (to - last) / 1000;
-    if (working && resting) breakSec += span;
+    if (working && resting) breakSec += span;              // 舊版「中午休息/休息結束」事件
     else if (working) workSec += span;
+    else if (pendingOut) breakSec += span;                  // 下班 → 上班 之間的空檔自動算休息
     last = to;
   };
 
   for (const e of evs) {
     advance(e.ts);
     last = e.ts;
-    if (e.t === "in")            { working = true; resting = false; if (firstIn === null) firstIn = e.ts; }
-    else if (e.t === "out")      { working = false; resting = false; lastOut = e.ts; }
+    if (e.t === "in")            { working = true; resting = false; pendingOut = false; if (firstIn === null) firstIn = e.ts; }
+    else if (e.t === "out")      { working = false; resting = false; pendingOut = true; lastOut = e.ts; }
     else if (e.t === "breakStart"){ resting = true; }
     else if (e.t === "breakEnd") { resting = false; }
   }
 
   const open = working;                       // 還在上班中(沒打下班卡)
   const isToday = day.date === ymd(new Date());
-  if (open) {
-    if (isToday) advance(nowTs);              // 今天 → 即時累加到現在
-  }
+  if (open && isToday) advance(nowTs);        // 今天且還在上班 → 即時累加到現在
+  // 下班後(pendingOut)是「今天已下班」還是「等等會回來的午休」無法區分,
+  // 所以不即時累加休息秒數,回來再按上班時才會一次補上那段空檔。
+
   // 過去的日子還開著 = 缺卡
   const missing = open && !isToday;
 
-  // 午休自動扣除:有設定、當天沒有手動打休息卡、且工時夠長才扣
+  // 午休自動扣除:有設定、當天完全沒有打過休息(手動或自動下班上班)、且工時夠長才扣
   let autoBreak = 0;
   const auto = Number(settings.autoBreakMin) || 0;
   if (auto > 0 && breakSec === 0 && workSec > auto * 60 + 3600) {
